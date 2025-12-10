@@ -1,0 +1,70 @@
+wildfire-detection-sketch/
+│
+├── app/                        # All code lives here
+│   ├── __init__.py             # from .main import app
+│   ├── main.py                 # FastAPI app factory + router
+│   │
+│   ├── core/                   # Pure business logic – reusable
+│   │   ├── __init__.py         # exports classes
+│   │   ├── data_processor.py   # parsing + smoothing stubs
+│   │   ├── event_detector.py   # anomaly detection + scoring stubs
+│   │   └── models.py           # Pydantic models: Alert, AlertsSummary
+│   │
+│   └── api/                    # Thin API layer
+│       ├── __init__.py
+│       ├── router.py           # POST /detect + GET /health
+│       └── schemas.py          # Request/Response models
+│
+├── tests/
+│   ├── test_detector.py        # placeholders (skipped)
+│   └── test_api.py             # placeholders (skipped)
+│
+├── data/
+│   └── sample_input.json       # for README demo
+│
+├── README.md                   # Project overview + run steps
+├── requirements.txt            # fastapi, uvicorn, pydantic, pytest, numpy
+└── Part3_LLM_Design.md         # TBD
+
+
+
+
+basic implementation:
+Pipeline Steps
+
+DataProcessor
+Parse and validate input (timestamp, temperature, smoke, wind).
+Sort by timestamp.
+Apply smoothing: 5-point simple moving average using np.convolve(..., mode='same') on temperature and smoke.
+Preserve all original points and timestamps; output list of processed points with smoothed_temp and smoothed_smoke.
+
+EventDetector
+Compute global statistics on smoothed values:
+mean_temp, std_temp
+mean_smoke, std_smoke
+
+For each data point:
+temp_anomaly = max(0, (smoothed_temp - mean_temp) / (std_temp + 1e-6))
+smoke_anomaly = max(0, (smoothed_smoke - mean_smoke) / (std_smoke + 1e-6))
+wind_multiplier = 1.0 + (wind / 15.0)
+base_score = 40 × temp_anomaly + 50 × smoke_anomaly + 10 × (wind / 2)
+risk_score = min(100.0, max(0.0, base_score × wind_multiplier))
+
+If risk_score > 70 → create Alert(timestamp, round(risk_score, 1))
+Build AlertsSummary: events list, event_count, max_score (or 0.0 if none).
+
+
+Formulas Summary
+
+Smoothing: moving average, window = 5, mode = 'same'
+temp_anomaly = max(0, z-score of smoothed_temp)
+smoke_anomaly = max(0, z-score of smoothed_smoke)
+wind_multiplier = 1.0 + wind / 15.0
+base_score = 40 × temp_anomaly + 50 × smoke_anomaly + 10 × (wind / 2)
+risk_score = clip(base_score × wind_multiplier, 0, 100)
+Suspicious event threshold: risk_score > 70
+
+
+
+
+

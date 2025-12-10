@@ -1,0 +1,23 @@
+[
+    {"timestamp": "2025-08-02T00:00:00Z", "temperature": 23.4, "smoke": 0.01, "wind": 2.1},
+    {"timestamp": "2025-08-02T00:01:00Z", "temperature": 22.1, "smoke": 0.01, "wind": 1.8},
+    {"timestamp": "2025-08-02T00:02:00Z", "temperature": 21.9, "smoke": 0.02, "wind": 2.0},
+    {"timestamp": "2025-08-02T00:03:00Z", "temperature": 24.8, "smoke": 0.02, "wind": 2.5},
+    {"timestamp": "2025-08-02T00:04:00Z", "temperature": 27.3, "smoke": 0.03, "wind": 3.1},
+    {"timestamp": "2025-08-02T00:05:00Z", "temperature": 29.6, "smoke": 0.03, "wind": 3.4},
+    {"timestamp": "2025-08-02T00:06:00Z", "temperature": 31.2, "smoke": 0.04, "wind": 3.8},
+    {"timestamp": "2025-08-02T00:07:00Z", "temperature": 33.5, "smoke": 0.04, "wind": 4.2},
+    {"timestamp": "2025-08-02T00:08:00Z", "temperature": 35.1, "smoke": 0.05, "wind": 4.6},
+    {"timestamp": "2025-08-02T00:09:00Z", "temperature": 36.8, "smoke": 0.05, "wind": 5.0},
+    {"timestamp": "2025-08-02T00:10:00Z", "temperature": 45.2, "smoke": 0.06, "wind": 5.3},
+    {"timestamp": "2025-08-02T00:11:00Z", "temperature": 47.5, "smoke": 0.05, "wind": 4.9},
+    {"timestamp": "2025-08-02T00:12:00Z", "temperature": 44.9, "smoke": 0.04, "wind": 4.4},
+    {"timestamp": "2025-08-02T00:13:00Z", "temperature": 50.7, "smoke": 0.04, "wind": 3.9},
+    {"timestamp": "2025-08-02T00:14:00Z", "temperature": 55.4, "smoke": 0.03, "wind": 3.5},
+    {"timestamp": "2025-08-02T00:15:00Z", "temperature": 55.1, "smoke": 0.03, "wind": 3.0},
+    {"timestamp": "2025-08-02T00:16:00Z", "temperature": 26.8, "smoke": 0.02, "wind": 2.7},
+    {"timestamp": "2025-08-02T00:17:00Z", "temperature": 25.3, "smoke": 0.02, "wind": 2.4},
+    {"timestamp": "2025-08-02T00:18:00Z", "temperature": 24.6, "smoke": 0.01, "wind": 2.2},
+    {"timestamp": "2025-08-02T00:19:00Z", "temperature": 23.9, "smoke": 0.01, "wind": 2.1}
+  ]
+  
