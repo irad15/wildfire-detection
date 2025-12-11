@@ -10,20 +10,40 @@ class DataProcessor:
         self.raw_data = raw_data
 
     def _print_comparison(self, before: List[dict], after: List[dict]) -> None:
-        """Print detailed rows before/after processing with side-by-side comparison."""
-        print("=== DataProcessor comparison (before vs after) ===")
+        """Print a side-by-side comparison table of raw vs processed rows."""
+
+        print("\n=== DataProcessor comparison (before vs after) ===")
+
+        header = (
+            f"+----+---------------------+---------------+---------------+---------------+-----------+\n"
+            f"| #  | Timestamp           | Temp Raw      | Temp Smoothed | Smoke Raw     | Smoke Sm. |\n"
+            f"+----+---------------------+---------------+---------------+---------------+-----------+"
+        )
+        print(header)
+
         max_len = max(len(before), len(after))
+
         for idx in range(max_len):
             if idx < len(before) and idx < len(after):
                 b = before[idx]
                 a = after[idx]
-                print(
-                    f"{idx + 1:02d} | ts={b.get('timestamp')} "
-                    f"temp={b.get('temperature'):.2f} -> {a.get('smoothed_temp'):.2f} "
-                    f"smoke={b.get('smoke'):.4f} -> {a.get('smoothed_smoke'):.4f} "
-                    f"wind={b.get('wind'):.1f}"
+
+                row = (
+                    f"| {idx+1:02d} "
+                    f"| {str(b.get('timestamp')).ljust(19)} "
+                    f"| {b.get('temperature'):>13.2f} "
+                    f"| {a.get('smoothed_temp'):>13.2f} "
+                    f"| {b.get('smoke'):>13.4f} "
+                    f"| {a.get('smoothed_smoke'):>9.4f} |"
                 )
-        print("=== end comparison ===")
+                print(row)
+
+        footer = (
+            "\n+----+---------------------+---------------+---------------+---------------+-----------+"
+        )
+        print(footer)
+        print("=== end comparison ===\n")
+
 
     def process(self) -> List[dict]:
         """Sort records, smooth temp/smoke using Savitzky-Golay filter, keep originals."""

@@ -9,21 +9,45 @@ class EventDetector:
     def __init__(self, processed_data: List[dict]):
         self.data = processed_data
 
-    def _print_debug_scores(self, scores: List[float]) -> None:
-        """Debug helper: print all entries with timestamp, temp, smoke, wind, score"""
-        print("\n=== Detection Debug: All Data Points with Risk Scores ===")
-        print("idx | timestamp              | temp   | smoke  | wind | score  ")
-        print("-" * 68)
-        for idx, (item, score) in enumerate(zip(self.data, scores), 1):
-            print(
-                f"{idx:02d} | {item['timestamp'][-15:]:15} | "
-                f"{item.get('smoothed_temp', item['temperature']):6.2f} | "
-                f"{item.get('smoothed_smoke', item['smoke']):6.4f} | "
-                f"{item['wind']:4.1f} | {score:6.1f}"
-            )
-        print("=== End Debug ===\n")
+    def _print_debug_scores(
+        self,
+        temp_anomalies: List[float],
+        smoke_anomalies: List[float],
+        risk_scores: List[float],
+        std_temp: float,
+        std_smoke: float,
+    ) -> None:
+        """Beautiful debug table + global std values on top"""
+        print("\n" + "═" * 125)
+        print("DEBUG: Full Anomaly Detection Breakdown")
+        print("═" * 125)
+        print(f"Global std_temp  = {std_temp:7.4f} °C    |    Global std_smoke = {std_smoke:8.6f}")
+        print("─" * 125)
 
-    def detect(self) -> AlertsSummary:        
+        print(
+            f"{'idx':>3} | {'timestamp':^19} | {'temp':>7} | {'t_anom':>10} | "
+            f"{'smoke':>9} | {'s_anom':>11} | {'wind':>5} | {'risk':>11} {'status':>8}"
+        )
+        print("─" * 125)
+
+        for idx, (item, t_anom, s_anom, risk) in enumerate(
+            zip(self.data, temp_anomalies, smoke_anomalies, risk_scores), 1
+        ):
+            status = "ALERT" if risk > 70 else ""
+            ts = item["timestamp"][-19:]  # 2025-08-02T00:00:00Z
+            print(
+                f"{idx:03d} | {ts} | "
+                f"{item.get('smoothed_temp', item['temperature']):7.2f} | "
+                f"{t_anom:10.3f} | "
+                f"{item.get('smoothed_smoke', item['smoke']):9.4f} | "
+                f"{s_anom:11.3f} | "
+                f"{item['wind']:5.1f} | "
+                f"{risk:11.1f} {status:>8}"
+            )
+        print("═" * 125 + "\n")
+
+
+    def detect(self) -> AlertsSummary:
         if not self.data:
             return AlertsSummary(events=[], event_count=0, max_score=0.0)
 
@@ -32,48 +56,50 @@ class EventDetector:
         smoothed_smokes = np.array([item["smoothed_smoke"] for item in self.data], dtype=float)
         winds = np.array([item["wind"] for item in self.data], dtype=float)
 
-        # Global statistics on smoothed data
+        # Global statistics (only once!)
         mean_temp = np.mean(smoothed_temps)
-        std_temp = np.std(smoothed_temps) if np.std(smoothed_temps) > 0 else 1.0
+        std_temp = np.std(smoothed_temps) or 1.0
         mean_smoke = np.mean(smoothed_smokes)
-        std_smoke = np.std(smoothed_smokes) if np.std(smoothed_smokes) > 0 else 1.0
+        std_smoke = np.std(smoothed_smokes) or 1.0
 
         alerts: List[Alert] = []
         max_score = 0.0
-        all_scores: List[float] = []  # To collect for debug print
+        temp_anomalies = []
+        smoke_anomalies = []
+        risk_scores = []
 
         for item in self.data:
             smoothed_temp = item["smoothed_temp"]
             smoothed_smoke = item["smoothed_smoke"]
             wind = item["wind"]
 
-            # Anomaly detection: positive z-scores only
+            # Z-scores (positive only)
             temp_anomaly = max(0.0, (smoothed_temp - mean_temp) / std_temp)
             smoke_anomaly = max(0.0, (smoothed_smoke - mean_smoke) / std_smoke)
 
             # Wind multiplier
             wind_multiplier = 1.0 + (wind / 15.0)
 
-            # Base + final risk score
-            base_score = 40 * temp_anomaly + 50 * smoke_anomaly + 10 * (wind / 2)
-            risk_score = min(100.0, max(0.0, base_score * wind_multiplier))
+            # Risk score
+            risk_score = min(100.0, max(0.0, 40 * temp_anomaly + 50 * smoke_anomaly + 10 * (wind / 2)))
 
-            all_scores.append(risk_score)
+            # Store everything
+            temp_anomalies.append(temp_anomaly)
+            smoke_anomalies.append(smoke_anomaly)
+            risk_scores.append(risk_score)
 
             if risk_score > max_score:
                 max_score = risk_score
-
             if risk_score > 70:
-                alerts.append(Alert(
-                    timestamp=item["timestamp"],
-                    score=round(risk_score, 1)
-                ))
+                alerts.append(Alert(timestamp=item["timestamp"], score=round(risk_score, 1)))
 
-        # Debug print just before returning
-        self._print_debug_scores(all_scores)
+        # Print beautiful debug table with correct std values
+        self._print_debug_scores(
+            temp_anomalies, smoke_anomalies, risk_scores, std_temp, std_smoke
+        )
 
         return AlertsSummary(
             events=alerts,
             event_count=len(alerts),
-            max_score=round(max_score, 1) if alerts or max_score > 0 else 0.0
+            max_score=round(max_score, 1) if alerts or max_score > 0 else 0.0,
         )
