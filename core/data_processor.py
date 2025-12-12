@@ -2,14 +2,100 @@ from datetime import datetime
 from typing import List
 
 import numpy as np
-from scipy.signal import savgol_filter  # scipy is allowed (open-source)
+from scipy.signal import savgol_filter
+
+from .models import DataPoint, ProcessedDataPoint
 
 
 class DataProcessor:
-    def __init__(self, raw_data: List[dict]):
-        self.raw_data = raw_data
+    """Processes raw sensor data: sorts, smooths signals, enforces physical bounds."""
 
-    def _print_comparison(self, before: List[dict], after: List[dict]) -> None:
+    SAVITZKY_GOLAY_POLYORDER = 2
+    SAVITZKY_GOLAY_WINDOW = 13   # Must be odd and greater than polyorder
+
+    # -------------------------------------------------------------------------
+    # Main public method
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def process(cls, raw_data: List[DataPoint]) -> List[ProcessedDataPoint]:
+        """Main pipeline: sort → smooth → clip → build processed points."""
+
+        if not raw_data:
+            return []
+
+        # 1. Chronological order
+        sorted_data = cls._sort_by_timestamp(raw_data)
+
+        # 2. Extract raw signals
+        temps, smokes = cls._extract_signals(sorted_data)
+
+        # 3. Smooth both signals
+        smoothed_temps = cls._smooth_signal(temps)
+        smoothed_smokes = cls._smooth_signal(smokes)
+
+        smoothed_smokes = np.clip(smoothed_smokes, 0, 1.0) 
+
+        # 5. Build final objects
+        processed = cls._build_processed_points(sorted_data, smoothed_temps, smoothed_smokes)
+
+        # Optional debug output (comment out before submission)
+        cls._print_comparison(raw_data, processed)
+
+        return processed
+
+    # -------------------------------------------------------------------------
+    # Helper methods 
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _sort_by_timestamp(raw_data: List[DataPoint]) -> List[DataPoint]:
+        """Sort data points chronologically by ISO-8601 timestamp."""
+        return sorted(
+            raw_data,
+            key=lambda dp: datetime.fromisoformat(dp.timestamp.replace("Z", "+00:00")),
+        )
+
+    @staticmethod
+    def _extract_signals(data_points: List[DataPoint]) -> tuple[np.ndarray, np.ndarray]:
+        """Extract temperature and smoke as NumPy arrays for vectorized processing."""
+        temps = np.array([dp.temperature for dp in data_points], dtype=float)
+        smokes = np.array([dp.smoke for dp in data_points], dtype=float)
+        return temps, smokes
+
+    @staticmethod
+    def _smooth_signal(signal: np.ndarray) -> np.ndarray:
+        """Apply Savitzky-Golay filter; ignore if data too short."""
+        if len(signal) < DataProcessor.SAVITZKY_GOLAY_WINDOW:
+            return signal
+        return savgol_filter(
+            signal,
+            window_length=DataProcessor.SAVITZKY_GOLAY_WINDOW,
+            polyorder=DataProcessor.SAVITZKY_GOLAY_POLYORDER,
+        )
+
+    @staticmethod
+    def _build_processed_points(
+        original: List[DataPoint],
+        smoothed_temps: np.ndarray,
+        smoothed_smokes: np.ndarray,
+    ) -> List[ProcessedDataPoint]:
+        """Construct final ProcessedDataPoint objects with rounded smoothed values."""
+        processed = []
+        for dp, s_temp, s_smoke in zip(original, smoothed_temps, smoothed_smokes):
+            processed.append(
+                ProcessedDataPoint(
+                    timestamp=dp.timestamp,
+                    temperature=dp.temperature,
+                    smoke=dp.smoke,
+                    wind=dp.wind,
+                    smoothed_temp=round(float(s_temp), 2),
+                    smoothed_smoke=round(float(s_smoke), 4),
+                )
+            )
+        return processed
+
+    @staticmethod
+    def _print_comparison(before: List[DataPoint], after: List[ProcessedDataPoint]) -> None:
         """Print a side-by-side comparison table of raw vs processed rows."""
 
         print("\n=== DataProcessor comparison (before vs after) ===")
@@ -30,11 +116,11 @@ class DataProcessor:
 
                 row = (
                     f"| {idx+1:02d} "
-                    f"| {str(b.get('timestamp')).ljust(19)} "
-                    f"| {b.get('temperature'):>13.2f} "
-                    f"| {a.get('smoothed_temp'):>13.2f} "
-                    f"| {b.get('smoke'):>13.4f} "
-                    f"| {a.get('smoothed_smoke'):>9.4f} |"
+                    f"| {str(b.timestamp).ljust(19)} "
+                    f"| {b.temperature:>13.2f} "
+                    f"| {a.smoothed_temp:>13.2f} "
+                    f"| {b.smoke:>13.4f} "
+                    f"| {a.smoothed_smoke:>9.4f} |"
                 )
                 print(row)
 
@@ -43,50 +129,3 @@ class DataProcessor:
         )
         print(footer)
         print("=== end comparison ===\n")
-
-
-    def process(self) -> List[dict]:
-        """Sort records, smooth temp/smoke using Savitzky-Golay filter, keep originals."""
-        print("PROCESSING with Savitzky-Golay filter...")
-
-        if not self.raw_data:
-            return []
-
-        # Sort by timestamp
-        sorted_data = sorted(
-            self.raw_data,
-            key=lambda item: datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")),
-        )
-
-        temps = np.array([item["temperature"] for item in sorted_data], dtype=float)
-        smokes = np.array([item["smoke"] for item in sorted_data], dtype=float)
-
-        # Savitzky-Golay parameters
-        window_length = 13
-        polyorder = 2
-
-        if len(temps) < window_length:
-            smoothed_temps = temps.copy()
-            smoothed_smokes = smokes.copy()
-        else:
-            smoothed_temps = savgol_filter(temps, window_length=window_length, polyorder=polyorder)
-            smoothed_smokes = savgol_filter(smokes, window_length=window_length, polyorder=polyorder)
-
-        # === FIX: Clip to physical bounds ===
-        smoothed_temps = np.clip(smoothed_temps, 0.0, None)   # Temperature can't be negative
-        smoothed_smokes = np.clip(smoothed_smokes, 0.0, 1.0) # Smoke strictly 0–1
-
-        processed: List[dict] = []
-        for item, smooth_temp, smooth_smoke in zip(sorted_data, smoothed_temps, smoothed_smokes):
-            processed.append(
-                {
-                    **item,
-                    "smoothed_temp": round(float(smooth_temp), 2),
-                    "smoothed_smoke": round(float(smooth_smoke), 4),
-                }
-            )
-
-        # Debug comparison
-        self._print_comparison(sorted_data, processed)
-
-        return processed

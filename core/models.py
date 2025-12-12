@@ -1,10 +1,10 @@
 from datetime import datetime
 from typing import List
 
-from pydantic import BaseModel, Field, RootModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
-class SensorData(BaseModel):
+class DataPoint(BaseModel):
     """Sensor reading with validated fields for wildfire detection."""
     
     timestamp: str
@@ -24,19 +24,20 @@ class SensorData(BaseModel):
         return v
 
 
-class SensorDataList(RootModel[List[SensorData]]):
-    """Non-empty list of sensor readings."""
+class ProcessedDataPoint(DataPoint):
+    """DataPoint with smoothed values and temp alias."""
     
-    root: List[SensorData] = Field(..., min_length=1)
+    smoothed_temp: float
+    smoothed_smoke: float
 
 
-class Alert(BaseModel):
+class Event(BaseModel):
     timestamp: str
     score: float
 
 
-class AlertsSummary(BaseModel):
-    events: List[Alert]
+class EventsSummary(BaseModel):
+    events: List[Event]
     event_count: int
     max_score: float
 

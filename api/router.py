@@ -1,15 +1,15 @@
+from typing import List
 from fastapi import APIRouter
 
 from core.detection_service import DetectionService
-from core.models import SensorDataList
+from core.models import DataPoint
 
 router = APIRouter()
 
 
 @router.post("/detect")
-def detect(request: SensorDataList):
-    request_dicts = [item.model_dump() for item in request.root]
-    return DetectionService.run_detection(request_dicts)
+def detect(request: List[DataPoint]):
+    return DetectionService.run_detection(request)
 
 
 @router.get("/health")

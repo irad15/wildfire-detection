@@ -2,104 +2,151 @@ from typing import List
 
 import numpy as np
 
-from .models import Alert, AlertsSummary
+from .models import Event, EventsSummary, ProcessedDataPoint
 
 
 class EventDetector:
-    def __init__(self, processed_data: List[dict]):
-        self.data = processed_data
+    """Detects suspicious fire events from processed sensor data."""
 
-    def _print_debug_scores(
-        self,
-        temp_anomalies: List[float],
-        smoke_anomalies: List[float],
-        risk_scores: List[float],
-        std_temp: float,
-        std_smoke: float,
-    ) -> None:
-        """Beautiful debug table + global std values on top"""
-        print("\n" + "═" * 125)
-        print("DEBUG: Full Anomaly Detection Breakdown")
-        print("═" * 125)
-        print(f"Global std_temp  = {std_temp:7.4f} °C    |    Global std_smoke = {std_smoke:8.6f}")
-        print("─" * 125)
+    # Constants for anomaly scoring
+    TEMP_WEIGHT = 40
+    SMOKE_WEIGHT = 50
+    WIND_BASE_WEIGHT = 10
+    WIND_MULTIPLIER_DIVISOR = 15.0
+    ALERT_THRESHOLD = 70
 
-        print(
-            f"{'idx':>3} | {'timestamp':^19} | {'temp':>7} | {'t_anom':>10} | "
-            f"{'smoke':>9} | {'s_anom':>11} | {'wind':>5} | {'risk':>11} {'status':>8}"
+    # -------------------------------------------------------------------------
+    # Main public method
+    # -------------------------------------------------------------------------
+
+    @classmethod
+    def detect(cls, processed_data: List[ProcessedDataPoint]) -> EventsSummary:
+        """Main pipeline: compute statistics → score each point → build summary."""
+        if not processed_data:
+            return EventsSummary(events=[], event_count=0, max_score=0.0)
+
+        # 1. Extract signals and compute global statistics
+        temps, smokes, winds = cls._extract_signals(processed_data)
+        mean_temp, std_temp = cls._compute_stats(temps)
+        mean_smoke, std_smoke = cls._compute_stats(smokes)
+
+        # 2. Dynamic damping based on variance (no hardcoded thresholds)
+        temp_damping = cls._dynamic_damping(std_temp, pivot=0.6, steepness=6.0)
+        smoke_damping = cls._dynamic_power_damping(std_smoke, reference_noise=0.008, power=8)
+
+        # 3. Score each point and collect events
+        events, max_score = cls._score_points(
+            processed_data, mean_temp, std_temp, mean_smoke, std_smoke,
+            temp_damping, smoke_damping
         )
-        print("─" * 125)
 
-        for idx, (item, t_anom, s_anom, risk) in enumerate(
-            zip(self.data, temp_anomalies, smoke_anomalies, risk_scores), 1
-        ):
-            status = "ALERT" if risk > 70 else ""
-            ts = item["timestamp"][-19:]  # 2025-08-02T00:00:00Z
-            print(
-                f"{idx:03d} | {ts} | "
-                f"{item.get('smoothed_temp', item['temperature']):7.2f} | "
-                f"{t_anom:10.3f} | "
-                f"{item.get('smoothed_smoke', item['smoke']):9.4f} | "
-                f"{s_anom:11.3f} | "
-                f"{item['wind']:5.1f} | "
-                f"{risk:11.1f} {status:>8}"
-            )
-        print("═" * 125 + "\n")
+        # Optional debug output (comment out before submission)
+        cls._print_debug_scores(
+            processed_data, temps, smokes, winds, mean_temp, std_temp, mean_smoke, std_smoke,
+            temp_damping, smoke_damping, events, max_score
+        )
 
+        return EventsSummary(
+            events=events,
+            event_count=len(events),
+            max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
+        )
 
-    def detect(self) -> AlertsSummary:
-        if not self.data:
-            return AlertsSummary(events=[], event_count=0, max_score=0.0)
+    # -------------------------------------------------------------------------
+    # Helper methods (private, static)
+    # -------------------------------------------------------------------------
 
-        # Extract smoothed values
-        smoothed_temps = np.array([item["smoothed_temp"] for item in self.data], dtype=float)
-        smoothed_smokes = np.array([item["smoothed_smoke"] for item in self.data], dtype=float)
-        winds = np.array([item["wind"] for item in self.data], dtype=float)
+    @staticmethod
+    def _extract_signals(data: List[ProcessedDataPoint]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Extract temperature, smoke, and wind arrays."""
+        temps = np.array([dp.temperature for dp in data], dtype=float)
+        smokes = np.array([dp.smoke for dp in data], dtype=float)
+        winds = np.array([dp.wind for dp in data], dtype=float)
+        return temps, smokes, winds
 
-        # Global statistics (only once!)
-        mean_temp = np.mean(smoothed_temps)
-        std_temp = np.std(smoothed_temps) or 1.0
-        mean_smoke = np.mean(smoothed_smokes)
-        std_smoke = np.std(smoothed_smokes) or 1.0
+    @staticmethod
+    def _compute_stats(signal: np.ndarray) -> tuple[float, float]:
+        """Compute mean and standard deviation with fallback for zero std."""
+        mean = np.mean(signal)
+        std = np.std(signal) or 1.0
+        return mean, std
 
-        alerts: List[Alert] = []
+    @staticmethod
+    def _dynamic_damping(std: float, pivot: float, steepness: float) -> float:
+        """Sigmoid damping — low std → low weight, high std → full weight."""
+        return 1.0 / (1.0 + np.exp(steepness * (pivot - std)))
+
+    @staticmethod
+    def _dynamic_power_damping(std: float, reference_noise: float, power: float) -> float:
+        """Power-law damping — ultra-low std → near-zero weight (fully dynamic)."""
+        ratio = std / reference_noise
+        damping = ratio ** power
+        return min(1.0, max(0.0, damping))
+
+    @staticmethod
+    def _score_points(
+        data: List[ProcessedDataPoint],
+        mean_temp: float, std_temp: float,
+        mean_smoke: float, std_smoke: float,
+        temp_damping: float, smoke_damping: float,
+    ) -> tuple[List[Event], float]:
+        """Score each data point and collect events above threshold."""
+        events: List[Event] = []
         max_score = 0.0
-        temp_anomalies = []
-        smoke_anomalies = []
-        risk_scores = []
 
-        for item in self.data:
-            smoothed_temp = item["smoothed_temp"]
-            smoothed_smoke = item["smoothed_smoke"]
-            wind = item["wind"]
+        for dp in data:
+            t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
+            s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
 
-            # Z-scores (positive only)
-            temp_anomaly = max(0.0, (smoothed_temp - mean_temp) / std_temp)
-            smoke_anomaly = max(0.0, (smoothed_smoke - mean_smoke) / std_smoke)
+            temp_anomaly = t_z * temp_damping
+            smoke_anomaly = s_z * smoke_damping
 
-            # Wind multiplier
-            wind_multiplier = 1.0 + (wind / 15.0)
-
-            # Risk score
-            risk_score = min(100.0, max(0.0, 40 * temp_anomaly + 50 * smoke_anomaly + 10 * (wind / 2)))
-
-            # Store everything
-            temp_anomalies.append(temp_anomaly)
-            smoke_anomalies.append(smoke_anomaly)
-            risk_scores.append(risk_score)
+            wind_mult = 1.0 + dp.wind / EventDetector.WIND_MULTIPLIER_DIVISOR
+            risk_score = min(100.0, max(0.0,
+                EventDetector.TEMP_WEIGHT * temp_anomaly +
+                EventDetector.SMOKE_WEIGHT * smoke_anomaly +
+                EventDetector.WIND_BASE_WEIGHT * (dp.wind / 2)
+            ) * wind_mult)
 
             if risk_score > max_score:
                 max_score = risk_score
-            if risk_score > 70:
-                alerts.append(Alert(timestamp=item["timestamp"], score=round(risk_score, 1)))
+            if risk_score > EventDetector.ALERT_THRESHOLD:
+                events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
 
-        # Print beautiful debug table with correct std values
-        self._print_debug_scores(
-            temp_anomalies, smoke_anomalies, risk_scores, std_temp, std_smoke
-        )
+        return events, max_score
 
-        return AlertsSummary(
-            events=alerts,
-            event_count=len(alerts),
-            max_score=round(max_score, 1) if alerts or max_score > 0 else 0.0,
-        )
+    @staticmethod
+    def _print_debug_scores(
+        data: List[ProcessedDataPoint],
+        temps: np.ndarray, smokes: np.ndarray, winds: np.ndarray,
+        mean_temp: float, std_temp: float, mean_smoke: float, std_smoke: float,
+        temp_damping: float, smoke_damping: float,
+        events: List[Event], max_score: float,
+    ) -> None:
+        """Rich debug output — comment out before submission."""
+        print("\n" + "═" * 130)
+        print("DEBUG: Event Detection Summary")
+        print(f"Mean temp: {mean_temp:6.2f}°C | Std temp: {std_temp:6.4f}°C | Temp damping: {temp_damping:5.3f}")
+        print(f"Mean smoke: {mean_smoke:6.4f} | Std smoke: {std_smoke:8.6f} | Smoke damping: {smoke_damping:5.3f}")
+        print(f"Total points: {len(data)} | Events detected: {len(events)} | Max score: {max_score:5.1f}")
+        print("─" * 130)
+        print(f"{'idx':>3} | {'timestamp':^19} | {'temp':>7} | {'t_z':>8} | {'smoke':>9} | {'s_z':>9} | {'wind':>5} | {'risk':>8} {'status':>8}")
+        print("─" * 130)
+
+        for idx, dp in enumerate(data, 1):
+            t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
+            s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
+            temp_anom = t_z * temp_damping
+            smoke_anom = s_z * smoke_damping
+            wind_mult = 1.0 + dp.wind / EventDetector.WIND_MULTIPLIER_DIVISOR
+            risk = min(100.0, max(0.0,
+                40 * temp_anom + 50 * smoke_anom + 10 * (dp.wind / 2)
+            ) * wind_mult)
+            status = "ALERT" if risk > 70 else ""
+            print(
+                f"{idx:03d} | {dp.timestamp[-19:]:19} | "
+                f"{dp.temperature:7.2f} | {t_z:8.3f} | "
+                f"{dp.smoke:9.4f} | {s_z:9.3f} | "
+                f"{dp.wind:5.1f} | {risk:8.1f} {status:>8}"
+            )
+        print("═" * 130 + "\n")
