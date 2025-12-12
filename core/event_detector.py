@@ -2,7 +2,7 @@ from typing import List
 
 import numpy as np
 
-from .models import Event, EventsSummary, ProcessedDataPoint
+from .models import Event, EventsSummary, DataPoint
 
 
 class EventDetector:
@@ -15,12 +15,19 @@ class EventDetector:
     WIND_MULTIPLIER_DIVISOR = 15.0
     ALERT_THRESHOLD = 70
 
+    PIVOT = 0.6
+    STEEPNESS = 6.0
+    REFERENCE_NOISE = 0.008
+    POWER = 8
+
+
+
     # -------------------------------------------------------------------------
     # Main public method
     # -------------------------------------------------------------------------
 
     @classmethod
-    def detect(cls, processed_data: List[ProcessedDataPoint]) -> EventsSummary:
+    def detect(cls, processed_data: List[DataPoint]) -> EventsSummary:
         """Main pipeline: compute statistics → score each point → build summary."""
         if not processed_data:
             return EventsSummary(events=[], event_count=0, max_score=0.0)
@@ -31,8 +38,8 @@ class EventDetector:
         mean_smoke, std_smoke = cls._compute_stats(smokes)
 
         # 2. Dynamic damping based on variance (no hardcoded thresholds)
-        temp_damping = cls._dynamic_damping(std_temp, pivot=0.6, steepness=6.0)
-        smoke_damping = cls._dynamic_power_damping(std_smoke, reference_noise=0.008, power=8)
+        temp_damping = cls._dynamic_damping(std_temp, cls.PIVOT, cls.STEEPNESS)
+        smoke_damping = cls._dynamic_power_damping(std_smoke, cls.REFERENCE_NOISE, cls.POWER)
 
         # 3. Score each point and collect events
         events, max_score = cls._score_points(
@@ -57,7 +64,7 @@ class EventDetector:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _extract_signals(data: List[ProcessedDataPoint]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _extract_signals(data: List[DataPoint]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Extract temperature, smoke, and wind arrays."""
         temps = np.array([dp.temperature for dp in data], dtype=float)
         smokes = np.array([dp.smoke for dp in data], dtype=float)
@@ -85,7 +92,7 @@ class EventDetector:
 
     @staticmethod
     def _score_points(
-        data: List[ProcessedDataPoint],
+        data: List[DataPoint],
         mean_temp: float, std_temp: float,
         mean_smoke: float, std_smoke: float,
         temp_damping: float, smoke_damping: float,
@@ -98,6 +105,7 @@ class EventDetector:
             t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
             s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
 
+            # Damping the z scores:
             temp_anomaly = t_z * temp_damping
             smoke_anomaly = s_z * smoke_damping
 
@@ -117,7 +125,7 @@ class EventDetector:
 
     @staticmethod
     def _print_debug_scores(
-        data: List[ProcessedDataPoint],
+        data: List[DataPoint],
         temps: np.ndarray, smokes: np.ndarray, winds: np.ndarray,
         mean_temp: float, std_temp: float, mean_smoke: float, std_smoke: float,
         temp_damping: float, smoke_damping: float,

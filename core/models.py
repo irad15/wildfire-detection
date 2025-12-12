@@ -24,13 +24,6 @@ class DataPoint(BaseModel):
         return v
 
 
-class ProcessedDataPoint(DataPoint):
-    """DataPoint with smoothed values and temp alias."""
-    
-    smoothed_temp: float
-    smoothed_smoke: float
-
-
 class Event(BaseModel):
     timestamp: str
     score: float

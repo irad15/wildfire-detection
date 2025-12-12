@@ -4,7 +4,7 @@ from typing import List
 import numpy as np
 from scipy.signal import savgol_filter
 
-from .models import DataPoint, ProcessedDataPoint
+from .models import DataPoint
 
 
 class DataProcessor:
@@ -18,7 +18,7 @@ class DataProcessor:
     # -------------------------------------------------------------------------
 
     @classmethod
-    def process(cls, raw_data: List[DataPoint]) -> List[ProcessedDataPoint]:
+    def process(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
         """Main pipeline: sort → smooth → clip → build processed points."""
 
         if not raw_data:
@@ -78,24 +78,22 @@ class DataProcessor:
         original: List[DataPoint],
         smoothed_temps: np.ndarray,
         smoothed_smokes: np.ndarray,
-    ) -> List[ProcessedDataPoint]:
-        """Construct final ProcessedDataPoint objects with rounded smoothed values."""
+    ) -> List[DataPoint]:
+        """Construct final DataPoint objects with rounded smoothed values."""
         processed = []
         for dp, s_temp, s_smoke in zip(original, smoothed_temps, smoothed_smokes):
             processed.append(
-                ProcessedDataPoint(
+                DataPoint(
                     timestamp=dp.timestamp,
-                    temperature=dp.temperature,
-                    smoke=dp.smoke,
+                    temperature=round(float(s_temp), 2),
+                    smoke=round(float(s_smoke), 4),
                     wind=dp.wind,
-                    smoothed_temp=round(float(s_temp), 2),
-                    smoothed_smoke=round(float(s_smoke), 4),
                 )
             )
         return processed
 
     @staticmethod
-    def _print_comparison(before: List[DataPoint], after: List[ProcessedDataPoint]) -> None:
+    def _print_comparison(before: List[DataPoint], after: List[DataPoint]) -> None:
         """Print a side-by-side comparison table of raw vs processed rows."""
 
         print("\n=== DataProcessor comparison (before vs after) ===")
@@ -118,9 +116,9 @@ class DataProcessor:
                     f"| {idx+1:02d} "
                     f"| {str(b.timestamp).ljust(19)} "
                     f"| {b.temperature:>13.2f} "
-                    f"| {a.smoothed_temp:>13.2f} "
+                    f"| {a.temperature:>13.2f} "
                     f"| {b.smoke:>13.4f} "
-                    f"| {a.smoothed_smoke:>9.4f} |"
+                    f"| {a.smoke:>9.4f} |"
                 )
                 print(row)
 
