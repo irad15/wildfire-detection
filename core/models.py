@@ -6,12 +6,12 @@ from pydantic import BaseModel, Field, field_validator
 
 class DataPoint(BaseModel):
     """Sensor reading with validated fields for wildfire detection."""
-    
+
     timestamp: str
     temperature: float = Field(..., ge=-50, le=100)
     smoke: float = Field(..., ge=0.0, le=1.0)
     wind: float = Field(..., ge=0.0)
-    
+
     @field_validator('timestamp')
     @classmethod
     def validate_timestamp(cls, v: str) -> str:
@@ -33,5 +33,3 @@ class EventsSummary(BaseModel):
     events: List[Event]
     event_count: int
     max_score: float
-
-
