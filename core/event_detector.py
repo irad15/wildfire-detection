@@ -3,29 +3,23 @@ import math
 
 import numpy as np
 
+from .config import (
+    ALERT_THRESHOLD,
+    SMOKE_PIVOT,
+    SMOKE_STEEPNESS,
+    SMOKE_WEIGHT,
+    TEMP_PIVOT,
+    TEMP_STEEPNESS,
+    TEMP_WEIGHT,
+    WIND_BASE_WEIGHT,
+    WIND_PIVOT,
+    WIND_STEEPNESS,
+)
 from .models import Event, EventsSummary, DataPoint
 
 
 class EventDetector:
     """Detects suspicious fire events from processed sensor data."""
-
-    # Constants for anomaly scoring
-    TEMP_WEIGHT = 60
-    SMOKE_WEIGHT = 60
-    WIND_BASE_WEIGHT = 15
-
-    WIND_MULTIPLIER_DIVISOR = 15.0
-
-    ALERT_THRESHOLD = 70
-
-    TEMP_PIVOT = 4.0
-    TEMP_STEEPNESS = 3.0
-
-    SMOKE_PIVOT = 0.02      # tuned to typical smoke std
-    SMOKE_STEEPNESS = 20.0  # sharper transition for small std
-
-    WIND_PIVOT = 6.0        # m/s
-    WIND_STEEPNESS = 0.8
 
 
     @classmethod
@@ -63,8 +57,8 @@ class EventDetector:
         mean_smoke, std_smoke = np.mean(smokes), np.std(smokes, ddof=1)
 
         # 2. Compute dynamic damping
-        temp_damping = EventDetector._dynamic_damping(std_temp, EventDetector.TEMP_PIVOT, EventDetector.TEMP_STEEPNESS)
-        smoke_damping = EventDetector._dynamic_damping(std_smoke, EventDetector.SMOKE_PIVOT, EventDetector.SMOKE_STEEPNESS)
+        temp_damping = EventDetector._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
+        smoke_damping = EventDetector._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
 
         # 3. Score each point
         for dp in data:
@@ -77,18 +71,18 @@ class EventDetector:
             temp_anomaly = temp_severity * temp_damping
             smoke_anomaly = smoke_severity * smoke_damping
 
-            wind_score = EventDetector._wind_to_score(dp.wind, EventDetector.WIND_PIVOT, EventDetector.WIND_STEEPNESS)
+            wind_score = EventDetector._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
 
             risk_score = (
-                EventDetector.TEMP_WEIGHT * temp_anomaly +
-                EventDetector.SMOKE_WEIGHT * smoke_anomaly +
-                EventDetector.WIND_BASE_WEIGHT * wind_score
+                TEMP_WEIGHT * temp_anomaly +
+                SMOKE_WEIGHT * smoke_anomaly +
+                WIND_BASE_WEIGHT * wind_score
             )
 
             risk_score = max(0.0, min(100.0, risk_score))
             max_score = max(max_score, risk_score)
 
-            if risk_score > EventDetector.ALERT_THRESHOLD:
+            if risk_score > ALERT_THRESHOLD:
                 events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
 
         return events, max_score
@@ -159,8 +153,8 @@ class EventDetector:
         mean_smoke, std_smoke = np.mean(smokes), np.std(smokes, ddof=1)
 
         # Compute dynamic damping
-        temp_damping = cls._dynamic_damping(std_temp, cls.TEMP_PIVOT, cls.TEMP_STEEPNESS)
-        smoke_damping = cls._dynamic_damping(std_smoke, cls.SMOKE_PIVOT, cls.SMOKE_STEEPNESS)
+        temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
+        smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
 
         print("\n" + "═" * 170)
         print("DEBUG: Event Detection Summary")
@@ -194,17 +188,17 @@ class EventDetector:
             s_dmp = s_sev * smoke_damping
 
             # Wind contribution (bounded 0–1)
-            w_scr = cls._wind_to_score(dp.wind, cls.WIND_PIVOT, cls.WIND_STEEPNESS)
+            w_scr = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
 
             # Final risk score
             risk = (
-                cls.TEMP_WEIGHT * t_dmp +
-                cls.SMOKE_WEIGHT * s_dmp +
-                cls.WIND_BASE_WEIGHT * w_scr
+                TEMP_WEIGHT * t_dmp +
+                SMOKE_WEIGHT * s_dmp +
+                WIND_BASE_WEIGHT * w_scr
             )
             risk = max(0.0, min(100.0, risk))
 
-            status = "ALERT" if risk > cls.ALERT_THRESHOLD else ""
+            status = "ALERT" if risk > ALERT_THRESHOLD else ""
 
             print(
                 f"{idx:03d} | {dp.timestamp[-19:]:19} | "

@@ -4,14 +4,12 @@ from typing import List
 import numpy as np
 from scipy.signal import savgol_filter
 
+from .config import SAVITZKY_GOLAY_POLYORDER, SAVITZKY_GOLAY_WINDOW
 from .models import DataPoint
 
 
 class DataProcessor:
     """Processes raw sensor data: sorts, smooths signals, enforces physical bounds."""
-
-    SAVITZKY_GOLAY_POLYORDER = 2
-    SAVITZKY_GOLAY_WINDOW = 13   # Must be odd and greater than polyorder
 
 
     @classmethod
@@ -62,12 +60,12 @@ class DataProcessor:
     @staticmethod
     def _smooth_signal(signal: np.ndarray) -> np.ndarray:
         """Apply Savitzky-Golay filter; ignore if data too short."""
-        if len(signal) < DataProcessor.SAVITZKY_GOLAY_WINDOW:
+        if len(signal) < SAVITZKY_GOLAY_WINDOW:
             return signal
         return savgol_filter(
             signal,
-            window_length=DataProcessor.SAVITZKY_GOLAY_WINDOW,
-            polyorder=DataProcessor.SAVITZKY_GOLAY_POLYORDER,
+            window_length=SAVITZKY_GOLAY_WINDOW,
+            polyorder=SAVITZKY_GOLAY_POLYORDER,
         )
 
     @staticmethod

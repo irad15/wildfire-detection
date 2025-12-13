@@ -1,5 +1,6 @@
 # tests/core/test_event_detector.py
 
+from core.config import ALERT_THRESHOLD
 from core.event_detector import EventDetector
 from core.models import DataPoint
 
@@ -19,7 +20,7 @@ def test_real_fire_triggers_multiple_alerts():
     result = EventDetector.detect(data)
 
     assert result.event_count > 0
-    assert result.max_score > EventDetector.ALERT_THRESHOLD
+    assert result.max_score > ALERT_THRESHOLD
 
 
 def test_calm_day_no_alerts():
@@ -54,6 +55,10 @@ def test_temperature_spike_without_smoke_no_alert():
     result = EventDetector.detect(data)
 
     assert result.event_count == 0
+
+    # Even with a significant temperature spike, the absence of smoke should yield a moderately elevated score,
+    # but it should not reach the alert threshold (no false positives).
+    assert 30.0 < result.max_score < 60.0
 
 
 def test_empty_input_returns_empty_summary():

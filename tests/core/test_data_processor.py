@@ -2,6 +2,7 @@
 
 from core.data_processor import DataProcessor
 from core.models import DataPoint
+from core.config import SAVITZKY_GOLAY_WINDOW
 
 
 def test_smoothing_reduces_extreme_spike():
@@ -72,14 +73,15 @@ def test_unsorted_data_is_sorted_by_timestamp():
 
 def test_short_signal_is_not_smoothed():
     """Signals shorter than the Savitzky-Golay window should remain unchanged."""
+    size = SAVITZKY_GOLAY_WINDOW - 2  # ensure strictly smaller than window
     raw = [
         DataPoint(
-            timestamp=f"2025-08-01T11:0{i}:00Z",
+            timestamp=f"2025-08-01T11:{i:02d}:00Z",
             temperature=20.0 + i,
             smoke=0.01 + i * 0.001,
             wind=1.5
         )
-        for i in range(5)  # shorter than window size
+        for i in range(size)
     ]
 
     result = DataProcessor.process(raw)
@@ -89,8 +91,6 @@ def test_short_signal_is_not_smoothed():
         assert processed.smoke == round(original.smoke, 4)
 
     assert len(result) == len(raw)
-
-
 
 
 def test_empty_input_returns_empty_list():
