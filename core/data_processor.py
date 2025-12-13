@@ -13,9 +13,6 @@ class DataProcessor:
     SAVITZKY_GOLAY_POLYORDER = 2
     SAVITZKY_GOLAY_WINDOW = 13   # Must be odd and greater than polyorder
 
-    # -------------------------------------------------------------------------
-    # Main public method
-    # -------------------------------------------------------------------------
 
     @classmethod
     def process(cls, raw_data: List[DataPoint]) -> List[DataPoint]:

@@ -1,24 +1,26 @@
-# Wildfire Detection System - Current Implementation
+# Wildfire Detection System
 
 ## Project Overview
 
-This is a real-time wildfire detection system built with FastAPI that processes environmental sensor data to identify potential fire events. The system analyzes temperature, smoke density, and wind speed measurements to detect anomalous patterns that may indicate wildfires.
+Real-time wildfire detection system built with FastAPI that processes environmental sensor data (temperature, smoke, wind) to identify potential fire events using advanced signal processing and anomaly detection.
 
 ### Key Features
-- **Real-time Processing**: Accepts JSON arrays of sensor readings via REST API
-- **Advanced Signal Processing**: Uses Savitzky-Golay filtering for noise reduction
-- **Intelligent Anomaly Detection**: Dynamic variance-stabilized scoring algorithm
-- **Risk-based Alerting**: Configurable thresholds for event detection
-- **Comprehensive Validation**: Pydantic models ensure data integrity
+- Real-time REST API processing
+- Savitzky-Golay signal smoothing
+- Dynamic variance-stabilized anomaly detection
+- Risk-based alerting (threshold: 70)
+- Input validation with Pydantic models
 
 ## Architecture
 
 ```
 wildfire-detection/
+# Wildfire Detection System - Current Implementation
 ├── main.py                    # FastAPI application entry point
-├── api/
+├── api/                       # API layer with validation
 │   ├── __init__.py
-│   └── router.py              # REST API endpoints (/detect, /health)
+│   ├── router.py              # REST API endpoints (/detect, /health)
+│   └── validation.py          # Input validation middleware
 ├── core/                      # Business logic layer
 │   ├── __init__.py
 │   ├── models.py              # Pydantic data models (DataPoint, Event, EventsSummary)
@@ -33,133 +35,83 @@ wildfire-detection/
 │   ├── sample_inputflat.json  # Baseline stable readings
 │   ├── sample_inputflatRise.json # Stable with slight rise
 │   └── sample_inputflatSpike.json # Stable with sudden spike
-└── tests/                     # Test suite
-    ├── api/test_router.py
-    └── core/
-        ├── test_data_processor.py
-        └── test_event_detector.py
+└── tests/                     # Comprehensive test suite
+    ├── api/
+    │   └── test_router.py     # API endpoint tests
+    ├── core/
+    │   ├── test_data_processor.py  # Data processing unit tests
+    │   └── test_event_detector.py  # Event detection unit tests
     └── integration/
-        └── test_fire_scenarios.py
-        
-```
+        └── test_fire_scenarios.py   # End-to-end scenario tests
 
 ## API Endpoints
 
 ### POST /detect
-**Input**: Array of sensor readings
-```json
-[
-  {
-    "timestamp": "2025-08-01T00:00:00Z",
-    "temperature": 22.5,
-    "smoke": 0.01,
-    "wind": 2.3
-  }
-]
-```
-
-**Output**: Event detection summary
-```json
-{
-  "events": [
-    {
-      "timestamp": "2025-08-01T00:15:00Z",
-      "score": 85.7
-    }
-  ],
-  "event_count": 1,
-  "max_score": 85.7
-}
-```
+**Input**: Array of `DataPoint` objects (timestamp, temperature, smoke, wind)  
+**Output**: `EventsSummary` with events list, count, and max_score  
+**Errors**: 422 for empty input or validation failures
 
 ### GET /health
-**Output**: Service health status
-```json
-{"status": "ok"}
-```
+Returns `{"status": "ok"}`
 
 ## Processing Pipeline
 
-### 1. Data Processing (DataProcessor)
-- **Input Validation**: Pydantic models validate timestamp format (ISO-8601) and physical constraints
-- **Chronological Sorting**: Ensures data is processed in time order
-- **Signal Extraction**: Converts data to NumPy arrays for vectorized operations
-- **Savitzky-Golay Smoothing**:
-  - Window size: 13 points (must be odd)
-  - Polynomial order: 2
-  - Applied to temperature and smoke signals
-  - Fallback to original data for short sequences
-- **Physical Bounds Enforcement**:
-  - Temperature: ≥ 0°C (no negative values)
-  - Smoke: 0.0 - 1.0 (normalized range)
+### 1. Input Validation
+- Checks for empty input (returns 422 if empty)
+- Pydantic validates timestamp format (ISO-8601) and value ranges
 
-### 2. Event Detection (EventDetector)
-The detection algorithm uses sophisticated statistical anomaly detection with dynamic variance stabilization:
+### 2. Data Processing
+- Sort chronologically by timestamp
+- Extract signals to NumPy arrays
+- Apply Savitzky-Golay smoothing (window=13, polyorder=2) to temperature and smoke
+- Clip smoke to [0.0, 1.0]
+- Return smoothed DataPoint objects
 
-#### Dynamic Variance-Stabilized Anomaly Detection
-- **Global Statistics**: Computes mean and standard deviation for temperature and smoke
-- **Variance-Aware Damping**:
-  - **Temperature Damping**: Sigmoid function prevents false positives in low-variance data
-  - **Smoke Damping**: Power-law function adapts to noise levels
-- **Z-Score Calculation**: Measures deviation from baseline for each sensor
-- **Weighted Risk Scoring**:
-  - Temperature anomaly: 40% weight
-  - Smoke anomaly: 50% weight
-  - Wind contribution: 10% base + wind multiplier
-  - Wind multiplier: 1.0 + (wind_speed / 15.0)
+### 3. Event Detection
+- Compute global statistics (mean, sample std with ddof=1)
+- Apply dynamic damping via sigmoid functions:
+  - Temperature: pivot=4.0°C, steepness=3.0
+  - Smoke: pivot=0.02, steepness=20.0
+- Convert z-scores to severity scores [0,1] using one-sided CDF
+- Score wind via sigmoid (pivot=6.0 m/s, steepness=0.8)
+- Calculate risk: `60 × temp_anomaly + 60 × smoke_anomaly + 15 × wind_score`
+- Clip to [0, 100] and trigger events if score > 70
 
-#### Risk Score Formula
+## Algorithm Details
+
+**Risk Score Formula**:
 ```
-temp_z = max(0, (temp - mean_temp) / std_temp)
-smoke_z = max(0, (smoke - mean_smoke) / std_smoke)
-
-temp_anomaly = temp_z * temp_damping
-smoke_anomaly = smoke_z * smoke_damping
-
-base_score = 40 × temp_anomaly + 50 × smoke_anomaly + 10 × (wind / 2)
-risk_score = min(100.0, max(0.0, base_score × wind_multiplier))
+temp_z = (temp - mean_temp) / std_temp
+smoke_z = (smoke - mean_smoke) / std_smoke
+temp_severity = z_to_severity(temp_z)  # one-sided CDF
+smoke_severity = z_to_severity(smoke_z)
+temp_damping = sigmoid(std_temp, pivot=4.0, steepness=3.0)
+smoke_damping = sigmoid(std_smoke, pivot=0.02, steepness=20.0)
+wind_score = sigmoid(wind, pivot=6.0, steepness=0.8)
+risk_score = 60×temp_severity×temp_damping + 60×smoke_severity×smoke_damping + 15×wind_score
 ```
 
-#### Alert Threshold
-- **Event Trigger**: risk_score > 70
-- **Output**: EventsSummary with event list, count, and maximum score
+**Key Insights**:
+- Variance-aware damping prevents false positives in stable conditions
+- Severity mapping (not simple max(0,z)) provides bounded anomaly scores
+- Multi-sensor fusion with balanced weights (60/60/15)
+- Adaptive thresholds via sigmoid functions
 
-## Technical Implementation Details
+## Usage
 
-### Signal Processing
-- **Library**: SciPy's Savitzky-Golay filter for robust smoothing
-- **Edge Handling**: Window size adapts to data length
-- **Vectorization**: NumPy arrays for efficient computation
-
-### Anomaly Detection Algorithm
-- **Dynamic Adaptation**: Algorithm adjusts sensitivity based on data variance
-- **False Positive Reduction**: Damping functions prevent alerts in stable conditions
-- **Wind Integration**: Environmental factors amplify risk assessment
-
-### Data Models
-- **DataPoint**: Input sensor reading with validation
-- **Event**: Detected anomaly with timestamp and risk score
-- **EventsSummary**: Collection of events with metadata
-
-## Usage Examples
-
-### Running the Service
 ```bash
+# Run service
 uvicorn main:app --reload
-```
 
-### Testing with Sample Data
-```bash
+# Test endpoint
 curl -X POST "http://localhost:8000/detect" \
   -H "Content-Type: application/json" \
   -d @data/sample_input1Spike.json
 ```
 
-## Key Algorithm Insights
+## Technical Stack
 
-1. **Variance Stabilization**: Low-variance data gets damped to prevent noise-triggered alerts
-2. **Multi-Sensor Fusion**: Combines temperature, smoke, and wind for robust detection
-3. **Adaptive Thresholding**: No hardcoded thresholds - adapts to environmental conditions
-4. **Risk Quantification**: Scores provide actionable risk levels (0-100)
-
-This implementation provides a production-ready wildfire detection system with advanced signal processing and intelligent anomaly detection capabilities.
+- **FastAPI**: REST API framework
+- **Pydantic**: Data validation and models
+- **NumPy/SciPy**: Signal processing (Savitzky-Golay filter)
+- **pytest**: Testing framework

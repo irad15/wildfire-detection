@@ -28,11 +28,6 @@ class EventDetector:
     WIND_STEEPNESS = 0.8
 
 
-
-    # -------------------------------------------------------------------------
-    # Main methods:
-    # -------------------------------------------------------------------------
-
     @classmethod
     def detect(cls, processed_data: List[DataPoint]) -> EventsSummary:
         """Main pipeline: compute statistics → score each point → build summary."""
@@ -43,11 +38,7 @@ class EventDetector:
         events, max_score = cls._score_points(processed_data)
 
         # Optional debug output
-        cls._print_debug_scores(
-            processed_data,
-            events=events,
-            max_score=max_score
-        )
+        cls._print_debug_scores(processed_data, events=events, max_score=max_score)
 
         return EventsSummary(
             events=events,
