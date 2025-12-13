@@ -52,3 +52,30 @@ def test_flat_data_remains_almost_unchanged():
 
     # Length preserved
     assert len(result) == len(raw)
+
+
+def test_unsorted_data():
+    """Data should be sorted by timestamp before processing."""
+    # Create data points deliberately out of order
+    raw = [
+        DataPoint(timestamp="2025-08-01T10:05:00Z", temperature=24.0, smoke=0.02, wind=2.1),
+        DataPoint(timestamp="2025-08-01T10:01:00Z", temperature=23.0, smoke=0.01, wind=2.0),
+        DataPoint(timestamp="2025-08-01T10:03:00Z", temperature=23.5, smoke=0.015, wind=2.05),
+        DataPoint(timestamp="2025-08-01T10:00:00Z", temperature=22.0, smoke=0.009, wind=2.0),
+    ]
+    # Shuffle them even further to ensure randomness
+    import random
+    random.shuffle(raw)
+
+    result = DataProcessor.process(raw)
+
+    # Timestamps in result should be sorted chronologically
+    sorted_timestamps = sorted([dp.timestamp for dp in raw])
+    result_timestamps = [dp.timestamp for dp in result]
+    assert result_timestamps == sorted_timestamps
+
+    # Length preserved
+    assert len(result) == len(raw)
+
+    # Data values are associated with the right timestamp after sort & process
+    # (tricky to guarantee after smoothing, but order must match sorted input)

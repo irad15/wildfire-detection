@@ -39,7 +39,7 @@ class DataProcessor:
         # 5. Build final objects
         processed = cls._build_processed_points(sorted_data, smoothed_temps, smoothed_smokes)
 
-        # Optional debug output (comment out before submission)
+        # Optional debug output
         cls._print_comparison(raw_data, processed)
 
         return processed
