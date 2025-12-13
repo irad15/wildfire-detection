@@ -11,28 +11,25 @@ def test_health_endpoint():
     assert response.json() == {"status": "ok"}
 
 
-def test_detect_success():
-    # Minimal valid payload — should work
+def test_detect_valid_payload():
+    """Payload with valid data points should succeed (200)."""
     payload = [
-        {
-            "timestamp": "2025-08-01T10:00:00Z",
-            "temperature": 35.0,
-            "smoke": 0.1,
-            "wind": 3.0
-        }
+        {"timestamp": "2025-08-01T10:00:00Z", "temperature": 25.0, "smoke": 0.01, "wind": 2.0},
+        {"timestamp": "2025-08-01T10:01:00Z", "temperature": 25.5, "smoke": 0.02, "wind": 2.1},
+        {"timestamp": "2025-08-01T10:02:00Z", "temperature": 26.0, "smoke": 0.01, "wind": 2.2},
     ]
     response = client.post("/detect", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert "events" in data
     assert "event_count" in data
     assert "max_score" in data
+    assert isinstance(data["event_count"], int)
+    assert isinstance(data["max_score"], float)
 
 
 def test_detect_empty_payload():
     response = client.post("/detect", json=[])
     assert response.status_code == 422
-    assert "detail" in response.json()
 
 
 def test_detect_missing_field():

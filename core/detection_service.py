@@ -16,6 +16,8 @@ class DetectionService:
         2. Run event detection
         3. Return EventsSummary (Pydantic model)
         """
+
+        
         processed = DataProcessor.process(raw_records)
 
         summary = EventDetector.detect(processed)

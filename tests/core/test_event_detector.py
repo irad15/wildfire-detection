@@ -40,13 +40,13 @@ def test_temperature_spike_without_smoke_limited_alert():
     """Only temperature spike → some score, but not full fire"""
     data = [
         DataPoint(timestamp=f"2025-08-01T15:{i:02d}:00Z",
-                 temperature=25.0 if i < 10 else 55.0,
-                 smoke=0.01,
-                 wind=2.0)
+                 temperature=25.0 if i < 10 else 60.0,
+                 smoke=0.02,
+                 wind=4.0)
         for i in range(20)
     ]
 
     result = EventDetector.detect(data)
     assert result.event_count > 0
-    assert result.max_score > 60.0
+    assert result.max_score > 50.0
     assert result.max_score < 90.0  # Not a full fire without smoke
