@@ -15,7 +15,9 @@ The solution is organized using a clean, modular design that separates responsib
 
 ## Data Processing and Smoothing
 
-Temperature and smoke data are smoothed with a Savitzky-Golay filter to reduce noise and outliers. Wind is left unsmoothed, as it's naturally volatile and used only to add context to risk, not for anomaly detection.
+- Input data is first sorted by timestamps to ensure correct time order.
+- Temperature and smoke data are smoothed using a Savitzky-Golay filter to reduce noise and suppress outliers.
+- Wind data is left unsmoothed, since wind is naturally volatile and is used only to provide context to the risk score (not for anomaly detection).
 
 ## Anomaly Detection Approach
 
@@ -42,12 +44,14 @@ For each data point, the system computes a risk score ranging from 0 to 100 by c
 
 - **Temperature anomaly severity** – primary indicator
 - **Smoke anomaly severity** – primary indicator  
-- **Wind contribution** – minor indicator
+- **Wind contribution** – secondary indicator
 
 **Key properties of the score:**
 
 - Deterministic and repeatable
 - Strictly bounded within [0, 100]
+- Designed such that no single primary indicator can trigger an alert. Elevated risk only occurs when multiple signals together indicate abnormal behavior.
+
 
 A data point is marked as a suspicious event when:
 
@@ -68,11 +72,11 @@ This allows easy adjustment of algorithm parameters without modifying core logic
 
 ### Limitations (Current Version)
 
-- **No historical context**: All statistical calculations are performed on the current dataset only. Historical baselines from previous days are not used.
-
 - **Future leakage within a full-day window**: When analyzing a complete 24-hour window, statistics are computed using the entire dataset. If a wildfire dominates most of the day, early stages of the event may not appear anomalous because the baseline is already elevated, potentially leading to missed alerts. A future improvement would compute statistics incrementally up to the current timestamp.
 
 - **Fire-at-start scenario**: If data collection begins during an ongoing fire, elevated values may be treated as normal behavior since they define the dataset’s baseline. As a result, the system may fail to flag the event. A future version could address this by incorporating expert-defined rules.
+
+- **No historical context**: All statistical calculations are performed on the current dataset only. Historical baselines from previous days are not used.
 
 ### Assumptions
 
@@ -132,9 +136,9 @@ pytest
 
 Tests cover:
 
+- API request validation (empty/missing/invalid inputs)
 - Data processing and smoothing behavior
 - Anomaly detection and scoring logic
-- API-level integration scenarios
 
 ## Summary
 

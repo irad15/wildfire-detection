@@ -11,7 +11,6 @@ from .models import DataPoint
 class DataProcessor:
     """Processes raw sensor data: sorts, smooths signals, enforces physical bounds."""
 
-
     @classmethod
     def process(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
         """Main pipeline: sort → smooth → clip → build processed points."""
@@ -28,8 +27,10 @@ class DataProcessor:
         # 3. Smooth both signals
         smoothed_temps = cls._smooth_signal(temps)
         smoothed_smokes = cls._smooth_signal(smokes)
-
-        smoothed_smokes = np.clip(smoothed_smokes, 0, 1.0) 
+        
+        # 4. Clip to physical bounds
+        # SG smoothing may introduce small negative values near sharp spikes.
+        smoothed_smokes = np.clip(smoothed_smokes, 0, 1.0)
 
         # 5. Build final objects
         processed = cls._build_processed_points(sorted_data, smoothed_temps, smoothed_smokes)
@@ -87,8 +88,8 @@ class DataProcessor:
             )
         return processed
 
-    @staticmethod
-    def _print_comparison(before: List[DataPoint], after: List[DataPoint]) -> None:
+    @classmethod
+    def _print_comparison(cls, before: List[DataPoint], after: List[DataPoint]) -> None:
         """Print a side-by-side comparison table of raw vs processed rows."""
 
         print("\n=== DataProcessor comparison (before vs after) ===")

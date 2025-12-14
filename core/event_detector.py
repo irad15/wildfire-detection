@@ -41,9 +41,10 @@ class EventDetector:
         )
 
 
-    @staticmethod
-    def _score_points(data: List[DataPoint]) -> tuple[List[Event], float]:
-        """Score each processed data point, compute damping internally."""
+    @classmethod
+    def _score_points(cls, data: List[DataPoint]) -> tuple[List[Event], float]:
+        """Score each data point using variance-aware anomaly detection."""
+
         events: List[Event] = []
         max_score = 0.0
 
@@ -53,25 +54,31 @@ class EventDetector:
         # 1. Extract signals and compute statistics
         temps = np.array([dp.temperature for dp in data], dtype=float)
         smokes = np.array([dp.smoke for dp in data], dtype=float)
-        mean_temp, std_temp = np.mean(temps), np.std(temps, ddof=1)
-        mean_smoke, std_smoke = np.mean(smokes), np.std(smokes, ddof=1)
+
+        mean_temp = np.mean(temps)
+        mean_smoke = np.mean(smokes)
+
+        # Prevent division by zero in z-score calculation
+        EPS = 1e-6
+        std_temp = max(np.std(temps, ddof=1), EPS)
+        std_smoke = max(np.std(smokes, ddof=1), EPS)
 
         # 2. Compute dynamic damping
-        temp_damping = EventDetector._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
-        smoke_damping = EventDetector._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
+        temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
+        smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
 
         # 3. Score each point
         for dp in data:
-            t_z = (dp.temperature - mean_temp) / std_temp
-            s_z = (dp.smoke - mean_smoke) / std_smoke
+            t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
+            s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
 
-            temp_severity = EventDetector._z_to_severity(t_z)
-            smoke_severity = EventDetector._z_to_severity(s_z)
+            temp_severity = cls._z_to_severity(t_z)
+            smoke_severity = cls._z_to_severity(s_z)
 
             temp_anomaly = temp_severity * temp_damping
             smoke_anomaly = smoke_severity * smoke_damping
 
-            wind_score = EventDetector._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
+            wind_score = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
 
             risk_score = (
                 TEMP_WEIGHT * temp_anomaly +
@@ -86,6 +93,7 @@ class EventDetector:
                 events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
 
         return events, max_score
+
 
 
     # -------------------------------------------------------------------------
