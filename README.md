@@ -8,8 +8,8 @@ This project implements a small, explainable analysis pipeline for detecting sus
 
 The solution is organized using a clean, modular design that separates responsibilities:
 
-- **DataProcessor**: Handles input ordering and signal smoothing using Savitzky-Golay filter to reduce sensor noise.
-- **EventDetector**: Performs anomaly detection and computes a risk score per data point using variance-aware scoring.
+- **DataProcessor**: Handles input ordering and signal smoothing using Savitzky-Golay filter to reduce sensor noise. V2 adds spike suppression before smoothing.
+- **EventDetector**: Performs anomaly detection and computes a risk score per data point using variance-aware scoring. V2 adds alert hysteresis to reduce duplicate alerts within the same incident.
 - **DetectionService**: Orchestrates the full pipeline and acts as a boundary between the API layer and core logic.
 - **API Layer**: Provides REST endpoints with input validation.
 
@@ -17,6 +17,7 @@ The solution is organized using a clean, modular design that separates responsib
 
 - Input data is first sorted by timestamps to ensure correct time order.
 - Temperature and smoke data are smoothed using a Savitzky-Golay filter to reduce noise and suppress outliers.
+- V2 optionally suppresses isolated spikes (temperature/smoke) before smoothing to avoid single-sample noise driving alerts.
 - Wind data is left unsmoothed, since wind is naturally volatile and is used only to provide context to the risk score (not for anomaly detection).
 
 ## Anomaly Detection Approach
@@ -45,6 +46,7 @@ For each data point, the system computes a risk score ranging from 0 to 100 by c
 - **Temperature anomaly severity** – primary indicator
 - **Smoke anomaly severity** – primary indicator  
 - **Wind contribution** – secondary indicator
+- Optional V2 hysteresis: alerts fire once per incident until risk cools below a reset threshold.
 
 **Key properties of the score:**
 
@@ -64,7 +66,9 @@ risk_score > 70
 All tunable parameters are centralized in `core/config.py`:
 
 - Data processing: Savitzky-Golay filter parameters
+- V2 spike suppression: temperature/smoke spike thresholds
 - Event detection: Scoring weights, damping parameters, alert threshold
+- V2 hysteresis: reset threshold to re-arm alerts
 
 This allows easy adjustment of algorithm parameters without modifying core logic.
 
@@ -139,6 +143,13 @@ Tests cover:
 - API request validation (empty/missing/invalid inputs)
 - Data processing and smoothing behavior
 - Anomaly detection and scoring logic
+
+### Optional: Run V2 and Benchmarks
+- Switch to V2 locally by enabling `process_v2` and `detect_v2` in `core/detection_service.py`.
+- Another option is to run benchmarks comparing V1 vs V2 on sample data:
+  ```bash
+  python3 -m benchmarks.benchmark_detection
+  ```
 
 ## Summary
 

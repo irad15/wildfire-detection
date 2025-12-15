@@ -241,6 +241,10 @@ class EventDetector:
         mean_temp, std_temp = np.mean(temps), np.std(temps, ddof=1)
         mean_smoke, std_smoke = np.mean(smokes), np.std(smokes, ddof=1)
 
+        EPS = 1e-6
+        std_temp = max(np.std(temps, ddof=1), EPS)
+        std_smoke = max(np.std(smokes, ddof=1), EPS)
+
         # Compute dynamic damping
         temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
         smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
@@ -265,6 +269,7 @@ class EventDetector:
 
         for idx, dp in enumerate(data, 1):
             # Z-scores
+            
             t_z = (dp.temperature - mean_temp) / std_temp
             s_z = (dp.smoke - mean_smoke) / std_smoke
 
