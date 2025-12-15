@@ -12,6 +12,10 @@ This module contains all tunable parameters for data processing and event detect
 SAVITZKY_GOLAY_POLYORDER = 2
 SAVITZKY_GOLAY_WINDOW = 13  # Must be odd and greater than polyorder
 
+# Spike suppression parameters (DataProcessor V2)
+TEMP_SPIKE_THRESHOLD = 10.0  # Threshold for Temperature spike suppression
+SMOKE_SPIKE_THRESHOLD = 0.6  # Threshold for Smoke spike suppression
+
 # ============================================================================
 # Event Detection Configuration
 # ============================================================================
@@ -35,4 +39,7 @@ SMOKE_STEEPNESS = 20.0  # sharper transition for small std
 # Wind scoring parameters
 WIND_PIVOT = 6.0  # m/s
 WIND_STEEPNESS = 0.8
+
+# Alert hysteresis (EventDetector V2)
+HYSTERESIS_RESET_THRESHOLD = 65  # Threshold to re-arm alerting after firing
 

@@ -5,6 +5,7 @@ import numpy as np
 
 from .config import (
     ALERT_THRESHOLD,
+    HYSTERESIS_RESET_THRESHOLD,
     SMOKE_PIVOT,
     SMOKE_STEEPNESS,
     SMOKE_WEIGHT,
@@ -40,6 +41,24 @@ class EventDetector:
             max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
         )
 
+    # same as detect but uses _score_points_v2 + _print_debug_scores_v2
+    @classmethod
+    def detect_v2(cls, processed_data: List[DataPoint]) -> EventsSummary:
+        """Main pipeline: compute statistics → score each point → build summary."""
+        if not processed_data:
+            return EventsSummary(events=[], event_count=0, max_score=0.0)
+
+        # Score each point (internal statistics + damping)
+        events, max_score = cls._score_points_v2(processed_data)
+
+        # Optional debug output
+        cls._print_debug_scores_v2(processed_data, events=events, max_score=max_score)
+
+        return EventsSummary(
+            events=events,
+            event_count=len(events),
+            max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
+        )
 
     @classmethod
     def _score_points(cls, data: List[DataPoint]) -> tuple[List[Event], float]:
@@ -91,6 +110,68 @@ class EventDetector:
 
             if risk_score > ALERT_THRESHOLD:
                 events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
+
+        return events, max_score
+
+    @classmethod
+    def _score_points_v2(cls, data: List[DataPoint]) -> tuple[List[Event], float]:
+        """Score each data point with alert hysteresis to suppress repeated alerts."""
+
+        events: List[Event] = []
+        max_score = 0.0
+
+        if not data:
+            return events, max_score
+
+        # 1. Extract signals and compute statistics
+        temps = np.array([dp.temperature for dp in data], dtype=float)
+        smokes = np.array([dp.smoke for dp in data], dtype=float)
+
+        mean_temp = np.mean(temps)
+        mean_smoke = np.mean(smokes)
+
+        EPS = 1e-6
+        std_temp = max(np.std(temps, ddof=1), EPS)
+        std_smoke = max(np.std(smokes, ddof=1), EPS)
+
+        # 2. Compute dynamic damping
+        temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
+        smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
+
+        # Track whether we are already inside an active incident (V2)
+        in_active_incident = False
+
+        # 3. Score each point
+        for dp in data:
+            t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
+            s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
+
+            temp_severity = cls._z_to_severity(t_z)
+            smoke_severity = cls._z_to_severity(s_z)
+
+            temp_anomaly = temp_severity * temp_damping
+            smoke_anomaly = smoke_severity * smoke_damping
+
+            wind_score = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
+
+            risk_score = (
+                TEMP_WEIGHT * temp_anomaly +
+                SMOKE_WEIGHT * smoke_anomaly +
+                WIND_BASE_WEIGHT * wind_score
+            )
+
+            risk_score = max(0.0, min(100.0, risk_score))
+            max_score = max(max_score, risk_score)
+
+            # --- Hysteresis logic (V2 logic) ---
+            if not in_active_incident and risk_score > ALERT_THRESHOLD:
+                # First alert for this incident
+                events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
+                in_active_incident = True
+
+            elif in_active_incident and risk_score < HYSTERESIS_RESET_THRESHOLD:
+                # Incident has cooled down; allow future alerts
+                in_active_incident = False
 
         return events, max_score
 
@@ -219,3 +300,83 @@ class EventDetector:
         print("═" * 170 + "\n")
 
 
+    @classmethod
+    def _print_debug_scores_v2(
+        cls,
+        data: List[DataPoint],
+        events: List[Event],
+        max_score: float,
+    ) -> None:
+        """Debug output for V2 — prints ALERT only at incident start."""
+
+        if not data:
+            print("No data to print.")
+            return
+
+        # Compute statistics
+        temps = np.array([dp.temperature for dp in data], dtype=float)
+        smokes = np.array([dp.smoke for dp in data], dtype=float)
+        mean_temp, std_temp = np.mean(temps), np.std(temps, ddof=1)
+        mean_smoke, std_smoke = np.mean(smokes), np.std(smokes, ddof=1)
+
+        temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
+        smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
+
+        RESET_THRESHOLD = 65
+        in_active_incident = False
+
+        print("\n" + "═" * 170)
+        print("DEBUG: Event Detection Summary (V2)")
+        print(
+            f"Mean temp: {mean_temp:6.2f}°C | Std temp: {std_temp:8.4f} | Temp damping: {temp_damping:5.3f}\n"
+            f"Mean smoke: {mean_smoke:8.4f} | Std smoke: {std_smoke:10.6f} | Smoke damping: {smoke_damping:5.3f}\n"
+            f"Total points: {len(data)} | Events detected: {len(events)} | Max score: {max_score:5.1f}"
+        )
+        print("─" * 170)
+
+        print(
+            f"{'idx':>3} | {'timestamp':^19} | "
+            f"{'temp':>7} {'t_z':>7} {'t_sev':>7} {'t_dmp':>7} | "
+            f"{'smoke':>8} {'s_z':>7} {'s_sev':>7} {'s_dmp':>7} | "
+            f"{'wind':>5} {'w_scr':>6} | "
+            f"{'risk':>8} {'status':>8}"
+        )
+        print("─" * 170)
+
+        for idx, dp in enumerate(data, 1):
+            t_z = (dp.temperature - mean_temp) / std_temp
+            s_z = (dp.smoke - mean_smoke) / std_smoke
+
+            t_sev = cls._z_to_severity(t_z)
+            s_sev = cls._z_to_severity(s_z)
+
+            t_dmp = t_sev * temp_damping
+            s_dmp = s_sev * smoke_damping
+
+            w_scr = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
+
+            risk = (
+                TEMP_WEIGHT * t_dmp +
+                SMOKE_WEIGHT * s_dmp +
+                WIND_BASE_WEIGHT * w_scr
+            )
+            risk = max(0.0, min(100.0, risk))
+
+            status = ""
+
+            # --- hysteresis-aware ALERT labeling ---
+            if not in_active_incident and risk > ALERT_THRESHOLD:
+                status = "ALERT"
+                in_active_incident = True
+            elif in_active_incident and risk < HYSTERESIS_RESET_THRESHOLD:
+                in_active_incident = False
+
+            print(
+                f"{idx:03d} | {dp.timestamp[-19:]:19} | "
+                f"{dp.temperature:7.2f} {t_z:7.2f} {t_sev:7.3f} {t_dmp:7.3f} | "
+                f"{dp.smoke:8.4f} {s_z:7.2f} {s_sev:7.3f} {s_dmp:7.3f} | "
+                f"{dp.wind:5.1f} {w_scr:6.3f} | "
+                f"{risk:8.1f} {status:>8}"
+            )
+
+        print("═" * 170 + "\n")

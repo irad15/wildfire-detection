@@ -50,7 +50,7 @@ For each data point, the system computes a risk score ranging from 0 to 100 by c
 
 - Deterministic and repeatable
 - Strictly bounded within [0, 100]
-- Designed such that no single primary indicator can trigger an alert. Elevated risk only occurs when multiple signals together indicate abnormal behavior.
+- Designed such that no single primary indicator can trigger an event/alert. Elevated risk only occurs when multiple signals together indicate abnormal behavior.
 
 
 A data point is marked as a suspicious event when:
@@ -123,7 +123,7 @@ http://localhost:8000
 ```bash
 curl -X POST "http://localhost:8000/detect" \
   -H "Content-Type: application/json" \
-  -d @data/sample_input1Spike.json
+  -d @data/sample_input_1_spike.json
 ```
 
 ### Run Tests

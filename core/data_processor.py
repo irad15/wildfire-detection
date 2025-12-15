@@ -4,7 +4,12 @@ from typing import List
 import numpy as np
 from scipy.signal import savgol_filter
 
-from .config import SAVITZKY_GOLAY_POLYORDER, SAVITZKY_GOLAY_WINDOW
+from .config import (
+    SAVITZKY_GOLAY_POLYORDER,
+    SAVITZKY_GOLAY_WINDOW,
+    TEMP_SPIKE_THRESHOLD,
+    SMOKE_SPIKE_THRESHOLD,
+)
 from .models import DataPoint
 
 
@@ -39,6 +44,41 @@ class DataProcessor:
         cls._print_comparison(raw_data, processed)
 
         return processed
+
+    @classmethod
+    def process_v2(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
+        """V2 pipeline: adds spike suppression before smoothing."""
+
+        if not raw_data:
+            return []
+
+        # 1. Chronological order
+        sorted_data = cls._sort_by_timestamp(raw_data)
+
+        # 2. Extract raw signals
+        temps, smokes = cls._extract_signals(sorted_data)
+
+        # 3. NEW STEP: suppress isolated spikes before smoothing
+        temps = cls._suppress_spikes(temps, TEMP_SPIKE_THRESHOLD)
+        smokes = cls._suppress_spikes(smokes, SMOKE_SPIKE_THRESHOLD)
+
+        # 4. Smooth signals
+        smoothed_temps = cls._smooth_signal(temps)
+        smoothed_smokes = cls._smooth_signal(smokes)
+
+        # 5. Enforce physical bounds
+        smoothed_smokes = np.clip(smoothed_smokes, 0.0, 1.0)
+
+        # 6. Build final objects
+        processed = cls._build_processed_points(
+            sorted_data, smoothed_temps, smoothed_smokes
+        )
+
+        # Optional debug output
+        cls._print_comparison(raw_data, processed)
+
+        return processed
+
 
     # -------------------------------------------------------------------------
     # Helper methods 
@@ -123,3 +163,43 @@ class DataProcessor:
         )
         print(footer)
         print("=== end comparison ===\n")
+
+
+    # -------------------------------------------------------------------------
+    # V2 pipeline methods 
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _suppress_spikes(signal: np.ndarray, threshold: float) -> np.ndarray:
+        """
+        Suppress isolated single-point spikes (both peaks and dips).
+
+        A value is considered a spike if it is significantly higher than both
+        neighbors or significantly lower than both neighbors by the given threshold.
+        Edge values are left unchanged because they lack sufficient neighboring
+        context to reliably distinguish sensor noise from real signal changes.
+        """ 
+
+        if len(signal) < 3:
+            return signal
+
+        fixed = signal.copy()
+
+        for i in range(1, len(fixed) - 1):
+            prev_val = fixed[i - 1]
+            curr_val = fixed[i]
+            next_val = fixed[i + 1]
+
+            is_peak = (
+                curr_val - prev_val > threshold and
+                curr_val - next_val > threshold
+            )
+
+            is_dip = (
+                prev_val - curr_val > threshold and
+                next_val - curr_val > threshold
+            )
+
+            if is_peak or is_dip:
+                fixed[i] = (prev_val + next_val) / 2.0
+
+        return fixed

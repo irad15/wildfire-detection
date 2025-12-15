@@ -7,22 +7,23 @@ Real-time wildfire detection system built with FastAPI that processes environmen
 ### Key Features
 - Real-time REST API processing
 - Savitzky-Golay signal smoothing
-- Dynamic variance-stabilized anomaly detection
+- Dynamic variance-aware anomaly detection
 - Risk-based alerting (threshold: 70)
 - Input validation with Pydantic models
+- Centralized configuration management
 
 ## Architecture
 
 ```
 wildfire-detection/
-# Wildfire Detection System - Current Implementation
 ├── main.py                    # FastAPI application entry point
 ├── api/                       # API layer with validation
 │   ├── __init__.py
 │   ├── router.py              # REST API endpoints (/detect, /health)
-│   └── validation.py          # Input validation middleware
+│   └── validation.py          # Input validation (empty input check)
 ├── core/                      # Business logic layer
 │   ├── __init__.py
+│   ├── config.py              # Centralized configuration constants
 │   ├── models.py              # Pydantic data models (DataPoint, Event, EventsSummary)
 │   ├── data_processor.py      # Signal processing and smoothing
 │   ├── event_detector.py      # Anomaly detection and scoring
@@ -35,39 +36,43 @@ wildfire-detection/
 │   ├── sample_inputflat.json  # Baseline stable readings
 │   ├── sample_inputflatRise.json # Stable with slight rise
 │   └── sample_inputflatSpike.json # Stable with sudden spike
-└── tests/                     # Comprehensive test suite
-    ├── api/
-    │   └── test_router.py     # API endpoint tests
-    ├── core/
-    │   ├── test_data_processor.py  # Data processing unit tests
-    │   └── test_event_detector.py  # Event detection unit tests
-    └── integration/
-        └── test_fire_scenarios.py   # End-to-end scenario tests
+├── tests/                     # Comprehensive test suite
+│   ├── api/
+│   │   └── test_router.py     # API endpoint tests
+│   └── core/
+│       ├── test_data_processor.py  # Data processing unit tests
+│       └── test_event_detector.py  # Event detection unit tests
+│   
+├── requirements.txt           # Python dependencies
+├── README.md                  # Project documentation
+└── plan.txt                   # This file
+```
 
 ## API Endpoints
 
 ### POST /detect
 **Input**: Array of `DataPoint` objects (timestamp, temperature, smoke, wind)  
 **Output**: `EventsSummary` with events list, count, and max_score  
-**Errors**: 422 for empty input or validation failures
+**Errors**: 422 for empty input or Pydantic validation failures
 
 ### GET /health
 Returns `{"status": "ok"}`
 
 ## Processing Pipeline
 
-### 1. Input Validation
+### 1. Input Validation (API Layer)
 - Checks for empty input (returns 422 if empty)
 - Pydantic validates timestamp format (ISO-8601) and value ranges
+- Early rejection prevents expensive processing on invalid inputs
 
-### 2. Data Processing
+### 2. Data Processing (DataProcessor)
 - Sort chronologically by timestamp
 - Extract signals to NumPy arrays
 - Apply Savitzky-Golay smoothing (window=13, polyorder=2) to temperature and smoke
-- Clip smoke to [0.0, 1.0]
-- Return smoothed DataPoint objects
+- Clip smoke to [0.0, 1.0] (physical bounds enforcement)
+- Return smoothed DataPoint objects with original timestamp and wind preserved
 
-### 3. Event Detection
+### 3. Event Detection (EventDetector)
 - Compute global statistics (mean, sample std with ddof=1)
 - Apply dynamic damping via sigmoid functions:
   - Temperature: pivot=4.0°C, steepness=3.0
@@ -89,24 +94,40 @@ temp_damping = sigmoid(std_temp, pivot=4.0, steepness=3.0)
 smoke_damping = sigmoid(std_smoke, pivot=0.02, steepness=20.0)
 wind_score = sigmoid(wind, pivot=6.0, steepness=0.8)
 risk_score = 60×temp_severity×temp_damping + 60×smoke_severity×smoke_damping + 15×wind_score
+risk_score = max(0.0, min(100.0, risk_score))
 ```
 
 **Key Insights**:
 - Variance-aware damping prevents false positives in stable conditions
-- Severity mapping (not simple max(0,z)) provides bounded anomaly scores
+- Severity mapping (one-sided CDF, not simple max(0,z)) provides bounded anomaly scores
 - Multi-sensor fusion with balanced weights (60/60/15)
 - Adaptive thresholds via sigmoid functions
+- Configuration centralized in `core/config.py` for easy tuning
+
+## Configuration
+
+All tunable parameters are in `core/config.py`:
+- **Data Processing**: `SAVITZKY_GOLAY_WINDOW`, `SAVITZKY_GOLAY_POLYORDER`
+- **Event Detection**: `TEMP_WEIGHT`, `SMOKE_WEIGHT`, `WIND_BASE_WEIGHT`, `ALERT_THRESHOLD`
+- **Damping Parameters**: `TEMP_PIVOT`, `TEMP_STEEPNESS`, `SMOKE_PIVOT`, `SMOKE_STEEPNESS`
+- **Wind Scoring**: `WIND_PIVOT`, `WIND_STEEPNESS`
 
 ## Usage
 
 ```bash
+# Install dependencies
+pip install -r requirements.txt
+
 # Run service
 uvicorn main:app --reload
 
 # Test endpoint
 curl -X POST "http://localhost:8000/detect" \
   -H "Content-Type: application/json" \
-  -d @data/sample_input1Spike.json
+  -d @data/sample_input_1_spike.json
+
+# Run tests
+pytest
 ```
 
 ## Technical Stack
@@ -115,3 +136,4 @@ curl -X POST "http://localhost:8000/detect" \
 - **Pydantic**: Data validation and models
 - **NumPy/SciPy**: Signal processing (Savitzky-Golay filter)
 - **pytest**: Testing framework
+- **uvicorn**: ASGI server
