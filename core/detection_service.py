@@ -11,15 +11,17 @@ class DetectionService:
     @staticmethod
     def run_detection(raw_records: List[DataPoint]):
         """
-        Full detection pipeline:
-        1. Smooth/process incoming records
-        2. Run event detection
-        3. Return EventsSummary (Pydantic model)
-        """
-        processed = DataProcessor.process(raw_records)
-        #processed = DataProcessor.process_v2(raw_records)
+        Full detection pipeline used by the API.
 
+        Currently wired to the V1 algorithms (smoothing + scoring). To experiment
+        with V2 (spike suppression + hysteresis), switch the calls below.
+        """
+        # V1 path: baseline smoothing + scoring
+        processed = DataProcessor.process(raw_records)
         summary = EventDetector.detect(processed)
-        #summary = EventDetector.detect_v2(processed)
+
+        # V2 path (optional, for local experiments):
+        # processed = DataProcessor.process_v2(raw_records)
+        # summary = EventDetector.detect_v2(processed)
         
         return summary

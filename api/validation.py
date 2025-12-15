@@ -5,7 +5,7 @@ from core.models import DataPoint
 
 
 def validate_detection_input(data_points: List[DataPoint]) -> None:
-
+    """Guardrail around the core logic: reject empty payloads early."""
     if not data_points:
         raise HTTPException(
             status_code=422,

@@ -41,25 +41,6 @@ class EventDetector:
             max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
         )
 
-    # same as detect but uses _score_points_v2 + _print_debug_scores_v2
-    @classmethod
-    def detect_v2(cls, processed_data: List[DataPoint]) -> EventsSummary:
-        """Main pipeline: compute statistics → score each point → build summary."""
-        if not processed_data:
-            return EventsSummary(events=[], event_count=0, max_score=0.0)
-
-        # Score each point (internal statistics + damping)
-        events, max_score = cls._score_points_v2(processed_data)
-
-        # Optional debug output
-        cls._print_debug_scores_v2(processed_data, events=events, max_score=max_score)
-
-        return EventsSummary(
-            events=events,
-            event_count=len(events),
-            max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
-        )
-
     @classmethod
     def _score_points(cls, data: List[DataPoint]) -> tuple[List[Event], float]:
         """Score each data point using variance-aware anomaly detection."""
@@ -86,32 +67,59 @@ class EventDetector:
         temp_damping = cls._dynamic_damping(std_temp, TEMP_PIVOT, TEMP_STEEPNESS)
         smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
 
-        # 3. Score each point
+        # 3. Score each point in the processed data
         for dp in data:
+            # Compute positive-only z-scores (only above mean considered abnormal)
             t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
             s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
 
+            # Convert z-scores to severity (bounded [0,1] using CDF)
             temp_severity = cls._z_to_severity(t_z)
             smoke_severity = cls._z_to_severity(s_z)
 
+            # Apply variance-aware damping factors to each signal
             temp_anomaly = temp_severity * temp_damping
             smoke_anomaly = smoke_severity * smoke_damping
 
+            # Map wind value to score contribution [0, 1]
             wind_score = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
 
+            # Calculate total risk score (weighted sum of signals)
             risk_score = (
                 TEMP_WEIGHT * temp_anomaly +
                 SMOKE_WEIGHT * smoke_anomaly +
                 WIND_BASE_WEIGHT * wind_score
             )
 
+            # Ensure bounded in [0,100]
             risk_score = max(0.0, min(100.0, risk_score))
             max_score = max(max_score, risk_score)
 
+            # If score exceeds alert threshold, mark as suspicious event
             if risk_score > ALERT_THRESHOLD:
                 events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
 
         return events, max_score
+
+
+    # same as detect but uses _score_points_v2 + _print_debug_scores_v2
+    @classmethod
+    def detect_v2(cls, processed_data: List[DataPoint]) -> EventsSummary:
+        """V2 pipeline: same scoring, but with hysteresis to avoid repeat alerts."""
+        if not processed_data:
+            return EventsSummary(events=[], event_count=0, max_score=0.0)
+
+        # Score each point (internal statistics + damping)
+        events, max_score = cls._score_points_v2(processed_data)
+
+        # Optional debug output
+        cls._print_debug_scores_v2(processed_data, events=events, max_score=max_score)
+
+        return EventsSummary(
+            events=events,
+            event_count=len(events),
+            max_score=round(max_score, 1) if events or max_score > 0 else 0.0,
+        )
 
     @classmethod
     def _score_points_v2(cls, data: List[DataPoint]) -> tuple[List[Event], float]:
@@ -143,34 +151,40 @@ class EventDetector:
 
         # 3. Score each point
         for dp in data:
+            # Compute positive-only z-scores for temperature and smoke
             t_z = max(0.0, (dp.temperature - mean_temp) / std_temp)
             s_z = max(0.0, (dp.smoke - mean_smoke) / std_smoke)
 
+            # Convert z-scores to bounded severity values
             temp_severity = cls._z_to_severity(t_z)
             smoke_severity = cls._z_to_severity(s_z)
 
+            # Apply variance-based damping to reduce sensitivity in stable environments
             temp_anomaly = temp_severity * temp_damping
             smoke_anomaly = smoke_severity * smoke_damping
 
+            # Compute wind contribution independently
             wind_score = cls._wind_to_score(dp.wind, WIND_PIVOT, WIND_STEEPNESS)
 
+            # Combine all signal contributions into a final risk score
             risk_score = (
                 TEMP_WEIGHT * temp_anomaly +
                 SMOKE_WEIGHT * smoke_anomaly +
                 WIND_BASE_WEIGHT * wind_score
             )
 
+            # Clamp risk score to a valid range
             risk_score = max(0.0, min(100.0, risk_score))
             max_score = max(max_score, risk_score)
 
-            # --- Hysteresis logic (V2 logic) ---
+            # --- Hysteresis logic (V2) ---
             if not in_active_incident and risk_score > ALERT_THRESHOLD:
-                # First alert for this incident
+                # Trigger a single alert at the start of a high-risk incident
                 events.append(Event(timestamp=dp.timestamp, score=round(risk_score, 1)))
                 in_active_incident = True
 
             elif in_active_incident and risk_score < HYSTERESIS_RESET_THRESHOLD:
-                # Incident has cooled down; allow future alerts
+                # Risk dropped sufficiently; allow future alerts for a new incident
                 in_active_incident = False
 
         return events, max_score
@@ -229,7 +243,7 @@ class EventDetector:
         events: List[Event],
         max_score: float,
     ) -> None:
-        """Rich debug output — mirrors scoring logic exactly, damping computed internally."""
+        """Rich debug output (V1) — mirrors scoring logic exactly, damping computed internally."""
 
         if not data:
             print("No data to print.")
@@ -250,7 +264,7 @@ class EventDetector:
         smoke_damping = cls._dynamic_damping(std_smoke, SMOKE_PIVOT, SMOKE_STEEPNESS)
 
         print("\n" + "═" * 170)
-        print("DEBUG: Event Detection Summary")
+        print("DEBUG: Event Detection Summary (V1)")
         print(
             f"Mean temp: {mean_temp:6.2f}°C | Std temp: {std_temp:8.4f} | Temp damping: {temp_damping:5.3f}\n"
             f"Mean smoke: {mean_smoke:8.4f} | Std smoke: {std_smoke:10.6f} | Smoke damping: {smoke_damping:5.3f}\n"
@@ -303,7 +317,6 @@ class EventDetector:
             )
 
         print("═" * 170 + "\n")
-
 
     @classmethod
     def _print_debug_scores_v2(

@@ -7,7 +7,7 @@ from core.event_detector import EventDetector
 from core.models import DataPoint
 
 
-DATA_PATH = Path("data/sample_input_flat_rise_twice.json")
+DATA_PATH = Path("data/sample_input_flat_rise_twice.json")  # scenario with two gradual rises
 
 
 def load_data(path: Path):
@@ -19,7 +19,7 @@ def load_data(path: Path):
 
 
 def benchmark(data, process_func, detect_func):
-    """Generic benchmark function that accepts process and detect functions."""
+    """Generic benchmark utility: run a full pipeline and measure runtime + event count."""
     start = time.perf_counter()
     processed = process_func(data)
     result = detect_func(processed)
