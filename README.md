@@ -1,36 +1,38 @@
 # Wildfire Detection – Statistical Anomaly-Based Analysis
 
-## Project Overview
+## 1. Part 1 — Algorithmic Core Logic
 
-This project implements a small, explainable analysis pipeline for detecting suspicious wildfire-related events from environmental sensor data. The system processes time-series measurements of temperature, smoke, and wind, computes a risk score (0–100) for each data point, and marks high-risk records as suspicious events.
-
-## System Architecture
-
-The solution is organized using a clean, modular design that separates responsibilities:
-
-- **DataProcessor**: Handles input ordering and signal smoothing using Savitzky-Golay filter to reduce sensor noise. V2 adds spike suppression before smoothing.
-- **EventDetector**: Performs anomaly detection and computes a risk score per data point using variance-aware scoring. V2 adds alert hysteresis to reduce duplicate alerts within the same incident.
-- **DetectionService**: Orchestrates the full pipeline and acts as a boundary between the API layer and core logic.
-- **API Layer**: Provides REST endpoints with input validation.
-
-## Data Processing and Smoothing
+### 1a. Data Processing and Smoothing
 
 - Input data is first sorted by timestamps to ensure correct time order.
 - Temperature and smoke data are smoothed using a Savitzky-Golay filter to reduce noise and suppress outliers.
 - V2 optionally suppresses isolated spikes (temperature/smoke) before smoothing to avoid single-sample noise driving alerts.
 - Wind data is left unsmoothed, since wind is naturally volatile and is used only to provide context to the risk score (not for anomaly detection).
 
-## Anomaly Detection Approach
+### 1b. Anomaly Detection Approach
 
-### Statistical Outlier Detection
+#### 1b.i Statistical Outlier Detection
 
 Anomalies are detected statistically by analyzing deviations from normal behavior:
+
+- Formulas:
+```bash
+mean = sum(x_i) / n
+std  = sqrt( sum((x_i - mean)^2) / (n - 1) )
+z    = max(0, (x - mean) / std)   # positive-only
+severity = 2 * (0.5 * (1 + erf(z / sqrt(2))) - 0.5)  # one-sided CDF in [0,1]
+```
 
 - For temperature and smoke, mean and sample standard deviation are computed.
 - Positive z-score deviations (values above the mean) are mapped to severity scores [0, 1] with a one-sided CDF.
 - Only positive deviations raise risk; negative ones are ignored.
 
-### Variance-Aware Damping (Key Design Element)
+#### 1b.ii Variance-Aware Damping (Key Design Element):
+
+- Formula:
+```bash
+damping(std) = 1 / (1 + exp(steepness * (pivot - std)))
+```
 
 In low-variance data, small changes can appear much more significant than they are. To address this, the algorithm dampens anomaly scores when variance is very low, using a sigmoid-based scaling:
 
@@ -39,7 +41,15 @@ In low-variance data, small changes can appear much more significant than they a
 
 This reduces false positives from minor fluctuations while staying responsive to real anomalies.
 
-### Risk Score Computation (0–100)
+#### 1b.iii Risk Score Computation (0–100):
+
+- Formula:
+```bash
+risk = (TEMP_WEIGHT  * severity_temp * damping_temp) +
+       (SMOKE_WEIGHT * severity_smoke * damping_smoke) +
+       (WIND_BASE_WEIGHT * wind_score)
+risk = clamp(risk, 0, 100)
+```
 
 For each data point, the system computes a risk score ranging from 0 to 100 by combining several signals:
 
@@ -61,8 +71,6 @@ A data point is marked as a suspicious event when:
 risk_score > 70
 ```
 
-## Configuration
-
 All tunable parameters are centralized in `core/config.py`:
 
 - Data processing: Savitzky-Golay filter parameters
@@ -72,9 +80,9 @@ All tunable parameters are centralized in `core/config.py`:
 
 This allows easy adjustment of algorithm parameters without modifying core logic.
 
-## Assumptions and Limitations
+### 1c. Assumptions and Limitations
 
-### Limitations (Current Version)
+#### Limitations:
 
 - **Future leakage within a full-day window**: When analyzing a complete 24-hour window, statistics are computed using the entire dataset. If a wildfire dominates most of the day, early stages of the event may not appear anomalous because the baseline is already elevated, potentially leading to missed alerts. A future improvement would compute statistics incrementally up to the current timestamp.
 
@@ -82,14 +90,14 @@ This allows easy adjustment of algorithm parameters without modifying core logic
 
 - **No historical context**: All statistical calculations are performed on the current dataset only. Historical baselines from previous days are not used.
 
-### Assumptions
+#### Assumptions:
 
 - Sensor data is reasonably calibrated and reliable.
 - Measurements arrive at approximately one-minute intervals.
 - The detection logic operates on a finite batch of data points (e.g., a full time window) rather than on a continuous real-time stream.
 - Wind is intentionally left unsmoothed due to its volatility and contextual role.
 
-## Installation and Usage
+## 2. Part 2 — Microservice API
 
 ### Install Dependencies
 
@@ -104,7 +112,7 @@ pip install -r requirements.txt
 Start the API using FastAPI:
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8000
 ```
 
 The service will be available at:
@@ -130,6 +138,11 @@ curl -X POST "http://localhost:8000/detect" \
   -d @data/sample_input_1_spike.json
 ```
 
+You can also explore and try the API interactively via Swagger UI at:
+```
+http://127.0.0.1:8000/docs
+```
+
 ### Run Tests
 
 Run the full test suite using pytest:
@@ -150,9 +163,4 @@ Tests cover:
   ```bash
   python3 -m benchmarks.benchmark_detection
   ```
-
-## Summary
-
-This project provides a clear, explainable baseline for wildfire-related anomaly detection using statistical methods. Its focus is on interpretability, deterministic behavior, and safety, with variance-aware damping used to reduce false positives in stable environments.
-
-The architecture and logic are intentionally designed to support future improvements such as historical baselines, or expert-driven rules.
+- In addition to the benchmark summary, this test prints detailed output for both versions, showing per-data-point statistics, risk scores, and alert decisions.

@@ -14,11 +14,26 @@ from .models import DataPoint
 
 
 class DataProcessor:
-    """Processes raw sensor data: sorts, smooths signals, enforces physical bounds."""
+    """ 
+    Handles input ordering and signal smoothing using Savitzky-Golay filter to reduce sensor noise.
+    V2 adds spike suppression before smoothing.
+    """
 
     @classmethod
     def process(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
         """Main pipeline: sort → smooth → clip → build processed points."""
+
+        return cls._run_pipeline(raw_data, suppress_spikes=False)
+
+    @classmethod
+    def process_v2(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
+        """V2 pipeline: adds spike suppression before smoothing."""
+
+        return cls._run_pipeline(raw_data, suppress_spikes=True)
+
+    @classmethod
+    def _run_pipeline(cls, raw_data: List[DataPoint], suppress_spikes: bool) -> List[DataPoint]:
+        """Shared pipeline used by V1/V2; optional spike suppression toggled via flag."""
 
         if not raw_data:
             return []
@@ -29,56 +44,25 @@ class DataProcessor:
         # 2. Extract raw signals
         temps, smokes = cls._extract_signals(sorted_data)
 
-        # 3. Smooth both signals
+        # 3. Optional spike suppression
+        if suppress_spikes:
+            temps = cls._suppress_spikes(temps, TEMP_SPIKE_THRESHOLD)
+            smokes = cls._suppress_spikes(smokes, SMOKE_SPIKE_THRESHOLD)
+
+        # 4. Smooth both signals
         smoothed_temps = cls._smooth_signal(temps)
         smoothed_smokes = cls._smooth_signal(smokes)
-        
-        # 4. Clip to physical bounds
-        # SG smoothing may introduce small negative values near sharp spikes.
-        smoothed_smokes = np.clip(smoothed_smokes, 0, 1.0)
 
-        # 5. Build final objects
+        # 5. Clip to physical bounds (SG smoothing may introduce small negatives near spikes)
+        smoothed_smokes = np.clip(smoothed_smokes, 0.0, 1.0)
+
+        # 6. Build final objects
         processed = cls._build_processed_points(sorted_data, smoothed_temps, smoothed_smokes)
 
         # Optional debug output
         cls._print_comparison(raw_data, processed)
 
         return processed
-
-    @classmethod
-    def process_v2(cls, raw_data: List[DataPoint]) -> List[DataPoint]:
-        """V2 pipeline: adds spike suppression before smoothing."""
-
-        if not raw_data:
-            return []
-
-        # 1. Chronological order
-        sorted_data = cls._sort_by_timestamp(raw_data)
-
-        # 2. Extract raw signals
-        temps, smokes = cls._extract_signals(sorted_data)
-
-        # 3. NEW STEP: suppress isolated spikes before smoothing
-        temps = cls._suppress_spikes(temps, TEMP_SPIKE_THRESHOLD)
-        smokes = cls._suppress_spikes(smokes, SMOKE_SPIKE_THRESHOLD)
-
-        # 4. Smooth signals
-        smoothed_temps = cls._smooth_signal(temps)
-        smoothed_smokes = cls._smooth_signal(smokes)
-
-        # 5. Enforce physical bounds
-        smoothed_smokes = np.clip(smoothed_smokes, 0.0, 1.0)
-
-        # 6. Build final objects
-        processed = cls._build_processed_points(
-            sorted_data, smoothed_temps, smoothed_smokes
-        )
-
-        # Optional debug output
-        cls._print_comparison(raw_data, processed)
-
-        return processed
-
 
     # -------------------------------------------------------------------------
     # Helper methods 
@@ -163,7 +147,6 @@ class DataProcessor:
         )
         print(footer)
         print("=== end comparison ===\n")
-
 
     # -------------------------------------------------------------------------
     # V2 pipeline methods 
